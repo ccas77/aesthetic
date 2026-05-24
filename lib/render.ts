@@ -127,8 +127,11 @@ export async function renderVideo(args: RenderArgs): Promise<string> {
   ]);
 
   onProgress({ phase: "finalizing", pct: 98 });
-  const data = await ff.readFile("out.mp4");
-  const blob = new Blob([data as Uint8Array], { type: "video/mp4" });
+  const data = (await ff.readFile("out.mp4")) as Uint8Array;
+  // Copy to a fresh ArrayBuffer so Blob's strict typing is satisfied
+  const buf = new Uint8Array(data.byteLength);
+  buf.set(data);
+  const blob = new Blob([buf.buffer], { type: "video/mp4" });
   return URL.createObjectURL(blob);
 }
 

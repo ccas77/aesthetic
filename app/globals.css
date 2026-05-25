@@ -4,29 +4,16 @@
 
 html, body {
   min-height: 100vh;
-  background-color: #0a0a0a;
+  background-color: #ffffff;
 }
-
-/* Hairline grid background — barely visible, gives the workshop feel */
-body::before {
-  content: "";
-  position: fixed; inset: 0; pointer-events: none; z-index: 0;
-  background-image:
-    linear-gradient(to right, rgba(255,255,255,0.015) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255,255,255,0.015) 1px, transparent 1px);
-  background-size: 64px 64px;
-}
-
-main { position: relative; z-index: 1; }
 
 .h-serif { font-family: var(--font-display), serif; }
 .h-serif-italic { font-family: var(--font-display), serif; font-style: italic; }
 .h-mono { font-family: var(--font-mono), monospace; }
 
-::selection { background-color: #fafafa; color: #0a0a0a; }
+::selection { background-color: #0a0a0a; color: #ffffff; }
 
-/* Custom file/textarea focus rings - thin and crisp, no glow */
 textarea:focus, input:focus, button:focus-visible {
-  outline: 1px solid #fafafa;
+  outline: 1px solid #0a0a0a;
   outline-offset: 2px;
 }

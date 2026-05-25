@@ -233,7 +233,7 @@ function Step({ num, title, children }: { num: string; title: string; children: 
   return (
     <section className="grid grid-cols-[3rem_1fr] md:grid-cols-[5rem_1fr] gap-4 md:gap-8">
       <div className="pt-1">
-        <div className="h-serif-italic text-4xl md:text-5xl text-sepiaDark leading-none">{num}.</div>
+        <div className="h-serif-italic text-4xl md:text-5xl text-sepia leading-none">{num}.</div>
       </div>
       <div>
         <h2 className="h-serif text-3xl md:text-4xl text-ink mb-5 leading-none">{title}</h2>

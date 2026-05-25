@@ -5,17 +5,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Interface — neutral, high contrast
-        bg: "#0a0a0a",
-        surface: "#141414",
-        line: "#1f1f1f",
-        line2: "#2e2e2e",
-        ink: "#fafafa",
-        muted: "#a8a8a8",
-        dim: "#6e6e6e",
-        // Accent — the output palette, used sparingly as a hint
-        sepia: "#BCA998",
-        sepiaDark: "#6E5C4D",
+        bg: "#ffffff",
+        surface: "#fafaf9",
+        line: "#e7e5e4",
+        line2: "#d6d3d1",
+        ink: "#0a0a0a",
+        muted: "#525252",
+        dim: "#a3a3a3",
+        // Accent — the output palette, used as restrained editorial flourishes
+        sepia: "#4C392E",
+        sepiaSoft: "#8D7B6C",
       },
       fontFamily: {
         display: ["var(--font-display)", "serif"],

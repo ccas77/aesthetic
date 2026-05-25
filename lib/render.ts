@@ -17,6 +17,9 @@ export interface RenderProgress {
   pct: number;
 }
 
+// Output length cap. Long Suno tracks are trimmed to the first N seconds.
+export const MAX_DURATION_SEC = 15;
+
 interface RenderArgs {
   audio: Uint8Array;
   bpm: number;
@@ -48,8 +51,10 @@ export async function renderVideo(args: RenderArgs): Promise<string> {
   onProgress({ phase: "loading renderer", pct: 10 });
   const ff = await getFFmpeg();
 
-  // Decode audio duration so we know how long the video needs to be
-  const audioDurationSec = await getAudioDuration(audio);
+  // Decode audio duration, then clamp to the max output length we render.
+  // Long Suno tracks get trimmed to the first MAX_DURATION_SEC seconds.
+  const fullDurationSec = await getAudioDuration(audio);
+  const audioDurationSec = Math.min(fullDurationSec, MAX_DURATION_SEC);
   const cutMs = cutIntervalMs(bpm);
   const cutSec = cutMs / 1000;
   const totalCuts = Math.ceil(audioDurationSec / cutSec);

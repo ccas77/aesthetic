@@ -3,7 +3,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { renderVideo, type RenderProgress } from "@/lib/render";
 import { detectTempo } from "@/lib/beat-detect";
-import { LIBRARY } from "@/lib/library";
+import type { Still } from "@/lib/library";
+import { BANK } from "@/lib/bank";
 
 type Stage = "idle" | "analyzing" | "rendering" | "done";
 
@@ -16,9 +17,54 @@ export default function Home() {
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const [persistState, setPersistState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [persistMsg, setPersistMsg] = useState<string>("");
+  const [library, setLibrary] = useState<Still[]>([]);
+  const [libraryReady, setLibraryReady] = useState<boolean>(false);
+  const [missingCategories, setMissingCategories] = useState<string[]>([]);
+  const [generating, setGenerating] = useState<Record<string, "pending" | "ok" | "fail">>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const lastPhaseRef = useRef<string>("");
   const hydratedRef = useRef<boolean>(false);
+
+  // === Load the global stills bank from /api/library ===
+  const loadLibrary = useCallback(async () => {
+    try {
+      const r = await fetch("/api/library", { cache: "no-store" });
+      if (!r.ok) return;
+      const data = (await r.json()) as {
+        configured?: boolean;
+        stills?: Still[];
+        missing?: string[];
+      };
+      setLibrary(data.stills || []);
+      setMissingCategories(data.missing || []);
+      setLibraryReady(true);
+    } catch {
+      setLibraryReady(true);
+    }
+  }, []);
+
+  useEffect(() => { void loadLibrary(); }, [loadLibrary]);
+
+  // === Generate any missing categories ===
+  const onGenerateLibrary = useCallback(async () => {
+    const targets = missingCategories.length > 0 ? missingCategories : BANK.map((c) => c.id);
+    setGenerating(Object.fromEntries(targets.map((id) => [id, "pending"])));
+    await Promise.all(
+      targets.map(async (id) => {
+        try {
+          const r = await fetch("/api/admin/generate-still", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ category: id }),
+          });
+          setGenerating((g) => ({ ...g, [id]: r.ok ? "ok" : "fail" }));
+        } catch {
+          setGenerating((g) => ({ ...g, [id]: "fail" }));
+        }
+      }),
+    );
+    await loadLibrary();
+  }, [missingCategories, loadLibrary]);
 
   // === Persistence: load saved state on mount ===
   useEffect(() => {
@@ -151,7 +197,7 @@ export default function Home() {
         audio: new Uint8Array(audioBuf),
         bpm: tempo,
         quote,
-        library: LIBRARY,
+        library,
         onProgress: reportProgress,
       });
       setOutputUrl(url);
@@ -165,7 +211,7 @@ export default function Home() {
       });
       setStage("idle");
     }
-  }, [audioFile, quote, reportProgress]);
+  }, [audioFile, quote, library, reportProgress]);
 
   const reset = () => {
     setStage("idle"); setOutputUrl(null); setProgress({ phase: "", pct: 0 });
@@ -213,6 +259,62 @@ export default function Home() {
           </span>
         </div>
       </header>
+
+      {/* Library setup — visible until the bank is fully populated */}
+      {libraryReady && missingCategories.length > 0 && (
+        <section className="mb-16 border border-line2 px-6 py-6 bg-surface">
+          <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mb-2">
+            setup · stills bank
+          </div>
+          <h2 className="h-serif text-3xl text-ink mb-2">
+            {library.length === 0 ? "the bank is empty." : "the bank is incomplete."}
+          </h2>
+          <p className="text-muted text-sm mb-5 max-w-lg leading-relaxed">
+            The app generates its own stills via Higgsfield and saves them to
+            your Vercel Blob storage. {library.length} of {BANK.length} categories
+            are ready. Missing: <span className="h-mono text-xs">{missingCategories.join(", ")}</span>.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
+            {BANK.map((c) => {
+              const have = library.some((s) => s.id === c.id);
+              const gen = generating[c.id];
+              return (
+                <div
+                  key={c.id}
+                  className={`text-[11px] px-3 py-2 border ${
+                    have
+                      ? "border-line2 text-ink"
+                      : gen === "pending"
+                      ? "border-sepia text-sepia"
+                      : gen === "fail"
+                      ? "border-red-400 text-red-700"
+                      : "border-line2 text-dim"
+                  }`}
+                >
+                  <span className="h-mono text-[10px] uppercase tracking-wider">
+                    {have ? "✓" : gen === "pending" ? "…" : gen === "fail" ? "✕" : "·"}
+                  </span>{" "}
+                  {c.label}
+                </div>
+              );
+            })}
+          </div>
+          <button
+            onClick={onGenerateLibrary}
+            disabled={Object.values(generating).some((v) => v === "pending")}
+            className="px-6 py-3 bg-ink text-bg h-serif text-lg hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+          >
+            {Object.values(generating).some((v) => v === "pending")
+              ? "generating…"
+              : library.length === 0
+              ? "generate library"
+              : `generate ${missingCategories.length} missing`}
+          </button>
+          <p className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-4 leading-relaxed">
+            needs ANTHROPIC_API_KEY · HIGGSFIELD_MCP_TOKEN · BLOB_READ_WRITE_TOKEN in vercel env
+          </p>
+        </section>
+      )}
 
       {stage === "idle" && (
         <div className="space-y-16">

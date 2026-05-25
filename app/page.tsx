@@ -275,40 +275,20 @@ export default function Home() {
     !!activeBook && activeBook.categories.length > 0 && missingCategories.length === 0;
 
   return (
-    <main className="min-h-screen px-6 md:px-16 py-10 md:py-16 max-w-4xl mx-auto">
-      <header className="mb-12 md:mb-16">
-        <div className="flex items-baseline justify-between border-b border-line2 pb-6">
-          <h1 className="h-serif text-6xl md:text-8xl text-ink leading-none tracking-tight">
-            aesthetic<span className="text-sepia">.</span>
-          </h1>
-          <div className="text-right">
-            <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim">№ 001</div>
-            <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-1">v 0.2</div>
-            {persistMsg && (
-              <div
-                className={`h-mono text-[10px] uppercase tracking-[0.2em] mt-1 ${
-                  persistState === "error" ? "text-red-700" : "text-dim"
-                }`}
-              >
-                {persistState === "saving" ? "saving…" : persistMsg}
-              </div>
-            )}
+    <main className="min-h-screen px-6 md:px-16 py-6 md:py-8 max-w-4xl mx-auto">
+      <header className="mb-6 flex items-baseline justify-between border-b border-line2 pb-3">
+        <h1 className="h-serif text-3xl md:text-4xl text-ink leading-none tracking-tight">
+          aesthetic<span className="text-sepia">.</span>
+        </h1>
+        {persistMsg && (
+          <div
+            className={`h-mono text-[10px] uppercase tracking-[0.2em] ${
+              persistState === "error" ? "text-red-700" : "text-dim"
+            }`}
+          >
+            {persistState === "saving" ? "saving…" : persistMsg}
           </div>
-        </div>
-        <p className="h-serif-italic text-2xl md:text-3xl text-muted mt-6 max-w-xl leading-tight">
-          a song and a quote, returns a video, fit for the feed.
-        </p>
-
-        <div className="mt-10 flex items-center gap-3">
-          <div className="flex h-3">
-            {["#100B08", "#292019", "#4C392E", "#6E5C4D", "#8D7B6C", "#BCA998"].map((c) => (
-              <div key={c} className="w-4 md:w-6" style={{ backgroundColor: c }} />
-            ))}
-          </div>
-          <span className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim">
-            output palette · 1080×1920
-          </span>
-        </div>
+        )}
       </header>
 
       <section className="mb-12 border border-line2 px-6 py-5 bg-surface">

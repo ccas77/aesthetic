@@ -8,10 +8,10 @@ import { LIBRARY } from "@/lib/library";
 type Stage = "idle" | "analyzing" | "rendering" | "done";
 
 const VIBES = [
-  { id: "longing",  label: "longing",  hint: "slow ache, unrequited" },
+  { id: "longing",  label: "longing",  hint: "slow ache" },
   { id: "healing",  label: "healing",  hint: "after the storm" },
-  { id: "fury",     label: "fury",     hint: "controlled, quiet rage" },
-  { id: "wistful",  label: "wistful",  hint: "nostalgia, soft edges" },
+  { id: "fury",     label: "fury",     hint: "quiet rage" },
+  { id: "wistful",  label: "wistful",  hint: "soft nostalgia" },
 ];
 
 export default function Home() {
@@ -46,7 +46,7 @@ export default function Home() {
       setStage("done");
     } catch (e) {
       console.error(e);
-      setProgress({ phase: `error: ${(e as Error).message}`, pct: 0 });
+      setProgress({ phase: `error — ${(e as Error).message}`, pct: 0 });
       setStage("idle");
     }
   }, [audioFile, quote, vibe]);
@@ -58,24 +58,40 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen px-6 md:px-12 py-12 max-w-3xl mx-auto">
+    <main className="min-h-screen px-6 md:px-16 py-10 md:py-16 max-w-4xl mx-auto">
+
       {/* Masthead */}
-      <header className="border-b border-umber/50 pb-8 mb-12">
-        <div className="flex items-baseline justify-between">
-          <h1 className="h-display text-5xl md:text-6xl tracking-tight text-bone">
-            aesthetic<span className="text-taupe">.</span>
+      <header className="mb-16 md:mb-24">
+        <div className="flex items-baseline justify-between border-b border-line2 pb-6">
+          <h1 className="h-serif text-6xl md:text-8xl text-ink leading-none tracking-tight">
+            aesthetic<span className="text-sepia">.</span>
           </h1>
-          <span className="h-display-italic text-sand text-sm">№ 001 · est. 2026</span>
+          <div className="text-right">
+            <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim">№ 001</div>
+            <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-1">v 0.1</div>
+          </div>
         </div>
-        <p className="mt-4 text-taupe text-sm max-w-md leading-relaxed">
-          A song. A quote. A vibe. Returns a video, fit for the feed.
+        <p className="h-serif-italic text-2xl md:text-3xl text-muted mt-6 max-w-xl leading-tight">
+          a song, a quote, a vibe — returns a video, fit for the feed.
         </p>
+
+        {/* Tiny preview chip showing the output palette */}
+        <div className="mt-10 flex items-center gap-3">
+          <div className="flex h-3">
+            {["#100B08","#292019","#4C392E","#6E5C4D","#8D7B6C","#BCA998"].map((c) => (
+              <div key={c} className="w-4 md:w-6" style={{ backgroundColor: c }} />
+            ))}
+          </div>
+          <span className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim">
+            output palette · 1080×1920
+          </span>
+        </div>
       </header>
 
       {stage === "idle" && (
-        <div className="space-y-10">
-          {/* Step 1 — Music */}
-          <Section number="i" title="the song">
+        <div className="space-y-16">
+
+          <Step num="i" title="the song">
             <input
               ref={fileRef}
               type="file"
@@ -86,64 +102,67 @@ export default function Home() {
             />
             <label
               htmlFor="audio-upload"
-              className="block border border-dashed border-umber rounded-sm px-6 py-8 cursor-pointer hover:border-sand transition-colors"
+              className="block border border-line2 px-6 py-8 cursor-pointer hover:border-ink transition-colors group"
             >
               {audioFile ? (
-                <div>
-                  <div className="text-bone font-medium">{audioFile.name}</div>
-                  <div className="text-taupe text-xs mt-1">
-                    {(audioFile.size / 1024 / 1024).toFixed(2)} MB · click to change
+                <>
+                  <div className="text-ink text-lg">{audioFile.name}</div>
+                  <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-2">
+                    {(audioFile.size / 1024 / 1024).toFixed(2)} mb · click to replace
                   </div>
-                </div>
+                </>
               ) : (
-                <div className="text-taupe">
-                  <div className="h-display-italic text-lg text-sand">drop a track</div>
-                  <div className="text-xs mt-1">mp3 or wav from Suno · instrumental, 60–100 bpm preferred</div>
-                </div>
+                <>
+                  <div className="h-serif-italic text-2xl text-muted group-hover:text-ink transition-colors">
+                    drop a track
+                  </div>
+                  <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-2">
+                    mp3 or wav · instrumental · 60–100 bpm preferred
+                  </div>
+                </>
               )}
             </label>
-          </Section>
+          </Step>
 
-          {/* Step 2 — Quote */}
-          <Section number="ii" title="the words">
+          <Step num="ii" title="the words">
             <textarea
               value={quote}
               onChange={(e) => setQuote(e.target.value)}
-              placeholder={'someone once said\n"you could be the most beautiful shade of green, but it still wouldn\'t be enough for someone who\'s favorite color is blue"\nand that healed something in me'}
-              className="w-full bg-transparent border border-umber rounded-sm px-4 py-3 text-bone placeholder:text-umber resize-none focus:border-sand focus:outline-none transition-colors"
+              placeholder={'someone once said\n"you could be the most beautiful shade of green,\nbut it still wouldn\'t be enough for someone\nwho\'s favorite color is blue"\nand that healed something in me'}
+              className="w-full bg-surface border border-line2 px-5 py-4 text-ink placeholder:text-dim resize-none focus:border-ink focus:outline-none transition-colors leading-relaxed"
               rows={6}
             />
-            <div className="text-xs text-taupe mt-2 flex justify-between">
-              <span>{quote.length} chars · 3 paragraphs reads best</span>
-              <span className="h-display-italic">use \n for line breaks</span>
+            <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-2 flex justify-between">
+              <span>{quote.length} chars</span>
+              <span>three paragraphs reads best</span>
             </div>
-          </Section>
+          </Step>
 
-          {/* Step 3 — Vibe */}
-          <Section number="iii" title="the mood">
+          <Step num="iii" title="the mood">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {VIBES.map((v) => (
                 <button
                   key={v.id}
                   onClick={() => setVibe(v.id)}
-                  className={`text-left px-4 py-3 border rounded-sm transition-all ${
+                  className={`text-left px-5 py-4 border transition-all ${
                     vibe === v.id
-                      ? "border-sand bg-bark text-bone"
-                      : "border-umber text-taupe hover:border-taupe"
+                      ? "border-ink bg-surface text-ink"
+                      : "border-line2 text-muted hover:border-muted hover:text-ink"
                   }`}
                 >
-                  <div className="h-display text-lg">{v.label}</div>
-                  <div className="text-[10px] mt-0.5 opacity-70">{v.hint}</div>
+                  <div className="h-serif-italic text-xl">{v.label}</div>
+                  <div className="h-mono text-[10px] uppercase tracking-[0.15em] mt-1 opacity-70">
+                    {v.hint}
+                  </div>
                 </button>
               ))}
             </div>
-          </Section>
+          </Step>
 
-          {/* Generate */}
           <button
             onClick={onGenerate}
             disabled={!audioFile || !quote.trim()}
-            className="w-full mt-12 py-5 bg-bone text-ink h-display text-2xl tracking-wider hover:bg-sand transition-colors disabled:bg-umber disabled:text-taupe disabled:cursor-not-allowed"
+            className="w-full mt-8 py-6 bg-ink text-bg h-serif text-3xl tracking-tight hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
           >
             generate
           </button>
@@ -151,44 +170,50 @@ export default function Home() {
       )}
 
       {(stage === "analyzing" || stage === "rendering") && (
-        <div className="space-y-6 mt-16">
-          <div className="h-display-italic text-3xl text-sand">{progress.phase || "working…"}</div>
-          <div className="h-px bg-umber relative overflow-hidden">
+        <div className="space-y-8 mt-12">
+          <div className="h-mono text-[10px] uppercase tracking-[0.3em] text-dim">in progress</div>
+          <div className="h-serif-italic text-5xl md:text-6xl text-ink leading-tight">
+            {progress.phase || "working…"}
+          </div>
+          <div className="h-px bg-line2 relative overflow-hidden">
             <div
-              className="absolute inset-y-0 left-0 bg-bone transition-all duration-500"
+              className="absolute inset-y-0 left-0 bg-ink transition-all duration-500"
               style={{ width: `${progress.pct}%` }}
             />
           </div>
-          <div className="text-xs text-taupe flex justify-between">
-            <span>{Math.round(progress.pct)}%</span>
+          <div className="h-mono text-[11px] uppercase tracking-[0.2em] text-muted flex justify-between">
+            <span>{Math.round(progress.pct)}% complete</span>
             {bpm && <span>{bpm} bpm detected</span>}
           </div>
-          <p className="text-taupe text-xs max-w-md leading-relaxed mt-12">
-            Rendering happens on this device — nothing leaves your browser. Large
-            tracks take longer; 30 seconds of music = roughly 60 seconds of render.
+          <p className="text-muted text-sm max-w-md leading-relaxed pt-12 border-t border-line">
+            Rendering happens on this device. Your audio never leaves the browser.
+            30 seconds of music ≈ 60 seconds to render.
           </p>
         </div>
       )}
 
       {stage === "done" && outputUrl && (
-        <div className="space-y-6 mt-8">
-          <div className="h-display-italic text-3xl text-sand">ready.</div>
+        <div className="space-y-8 mt-8">
+          <div className="h-mono text-[10px] uppercase tracking-[0.3em] text-dim">ready</div>
+          <h2 className="h-serif-italic text-5xl md:text-6xl text-ink">it&rsquo;s done.</h2>
+
           <video
             src={outputUrl}
             controls
-            className="w-full max-w-sm mx-auto border border-umber rounded-sm"
+            className="w-full max-w-xs mx-auto border border-line2"
           />
-          <div className="flex gap-3">
+
+          <div className="grid grid-cols-2 gap-3 max-w-xs mx-auto">
             <a
               href={outputUrl}
               download="aesthetic.mp4"
-              className="flex-1 py-3 bg-bone text-ink h-display text-lg text-center hover:bg-sand transition-colors"
+              className="py-3 bg-ink text-bg h-serif text-lg text-center hover:bg-sepia transition-colors"
             >
               download
             </a>
             <button
               onClick={reset}
-              className="flex-1 py-3 border border-umber text-taupe h-display text-lg hover:border-sand hover:text-bone transition-colors"
+              className="py-3 border border-line2 text-muted h-serif text-lg hover:border-ink hover:text-ink transition-colors"
             >
               another
             </button>
@@ -196,22 +221,24 @@ export default function Home() {
         </div>
       )}
 
-      <footer className="mt-24 pt-8 border-t border-umber/30 text-xs text-umber flex justify-between">
-        <span className="h-display-italic">rendered on device · no upload</span>
-        <span>v0.1</span>
+      <footer className="mt-32 pt-6 border-t border-line h-mono text-[10px] uppercase tracking-[0.2em] text-dim flex justify-between">
+        <span>rendered on device</span>
+        <span>aesthetic / 2026</span>
       </footer>
     </main>
   );
 }
 
-function Section({ number, title, children }: { number: string; title: string; children: React.ReactNode }) {
+function Step({ num, title, children }: { num: string; title: string; children: React.ReactNode }) {
   return (
-    <section>
-      <div className="flex items-baseline gap-4 mb-4">
-        <span className="h-display-italic text-sand text-2xl">{number}.</span>
-        <h2 className="h-display text-2xl text-bone">{title}</h2>
+    <section className="grid grid-cols-[3rem_1fr] md:grid-cols-[5rem_1fr] gap-4 md:gap-8">
+      <div className="pt-1">
+        <div className="h-serif-italic text-4xl md:text-5xl text-sepiaDark leading-none">{num}.</div>
       </div>
-      {children}
+      <div>
+        <h2 className="h-serif text-3xl md:text-4xl text-ink mb-5 leading-none">{title}</h2>
+        {children}
+      </div>
     </section>
   );
 }

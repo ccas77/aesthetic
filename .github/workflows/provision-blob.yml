@@ -1,0 +1,66 @@
+name: Provision Vercel Blob Store
+
+# Manual trigger from the Actions tab. Creates the Blob store and links
+# it to the project, which auto-adds BLOB_READ_WRITE_TOKEN to Vercel env vars.
+#
+# Requires repo secret: VERCEL_TOKEN
+#   github.com/ccas77/aesthetic → Settings → Secrets and variables → Actions
+#   → New repository secret → Name=VERCEL_TOKEN, value from vercel.com/account/tokens
+#
+# Once secret is set, run from: Actions tab → Provision Vercel Blob Store → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      store_name:
+        description: "Name for the Blob store"
+        required: false
+        default: "aesthetic-blob"
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Link to existing Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::VERCEL_TOKEN secret is not set. Add it in repo Settings → Secrets → Actions."
+            exit 1
+          fi
+          vercel link --yes --project=aesthetic --token=$VERCEL_TOKEN
+
+      - name: Create Blob store and link to project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          # --yes auto-connects to all environments and writes the token
+          # back into the project's env vars as BLOB_READ_WRITE_TOKEN
+          vercel blob create-store ${{ inputs.store_name }} \
+            --access public \
+            --yes \
+            --token=$VERCEL_TOKEN
+
+      - name: Trigger redeploy so the new env var takes effect
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prod --token=$VERCEL_TOKEN --yes
+
+      - name: Confirm env var is in place
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          vercel env ls production --token=$VERCEL_TOKEN | grep BLOB_READ_WRITE_TOKEN || \
+            (echo "::error::BLOB_READ_WRITE_TOKEN not found after provisioning" && exit 1)
+          echo "✓ Blob store provisioned and env var wired."

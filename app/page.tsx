@@ -299,19 +299,27 @@ export default function Home() {
               );
             })}
           </div>
-          <button
-            onClick={onGenerateLibrary}
-            disabled={Object.values(generating).some((v) => v === "pending")}
-            className="px-6 py-3 bg-ink text-bg h-serif text-lg hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
-          >
-            {Object.values(generating).some((v) => v === "pending")
-              ? "generating…"
-              : library.length === 0
-              ? "generate library"
-              : `generate ${missingCategories.length} missing`}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={onGenerateLibrary}
+              disabled={Object.values(generating).some((v) => v === "pending")}
+              className="px-6 py-3 bg-ink text-bg h-serif text-lg hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+            >
+              {Object.values(generating).some((v) => v === "pending")
+                ? "generating…"
+                : library.length === 0
+                ? "generate library"
+                : `generate ${missingCategories.length} missing`}
+            </button>
+            <a
+              href="/api/auth/higgsfield"
+              className="px-4 py-3 border border-line2 h-mono text-[11px] uppercase tracking-[0.2em] text-dim hover:text-ink hover:border-ink transition-colors"
+            >
+              connect higgsfield
+            </a>
+          </div>
           <p className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-4 leading-relaxed">
-            needs ANTHROPIC_API_KEY · HIGGSFIELD_MCP_TOKEN · BLOB_READ_WRITE_TOKEN in vercel env
+            needs ANTHROPIC_API_KEY · HIGGSFIELD_TOKEN_SECRET · BLOB_READ_WRITE_TOKEN in vercel env, then click connect higgsfield once
           </p>
         </section>
       )}

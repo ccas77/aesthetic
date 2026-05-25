@@ -2,15 +2,15 @@
 // image. Returns the URL of the generated image (still on Higgsfield's CDN).
 //
 // Requires env vars:
-//   ANTHROPIC_API_KEY       — required
-//   HIGGSFIELD_MCP_URL      — defaults to https://mcp.higgsfield.ai/mcp
-//   HIGGSFIELD_MCP_TOKEN    — OAuth bearer token, if MCP server requires it
+//   ANTHROPIC_API_KEY         — required
+//   HIGGSFIELD_MCP_URL        — defaults to https://mcp.higgsfield.ai/mcp
+//   HIGGSFIELD_TOKEN_SECRET   — required, encrypts the OAuth tokens at rest
 //
-// Strategy: ask Claude (via API) to call Higgsfield's generate_image tool
-// with our prompt and 2:3 aspect ratio. Parse out the resulting image URL
-// from the tool-use response blocks.
+// The Higgsfield bearer comes from the OAuth flow under
+// /api/auth/higgsfield; getAccessToken() auto-refreshes near expiry.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { getAccessToken } from "./higgsfield-oauth";
 
 interface GenerateOptions {
   prompt: string;
@@ -24,7 +24,12 @@ export async function generateStillViaHiggsfield(
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
 
   const mcpUrl = process.env.HIGGSFIELD_MCP_URL || "https://mcp.higgsfield.ai/mcp";
-  const mcpToken = process.env.HIGGSFIELD_MCP_TOKEN;
+  const mcpToken = await getAccessToken();
+  if (!mcpToken) {
+    throw new Error(
+      "Higgsfield not connected. Visit /api/auth/higgsfield to authorize.",
+    );
+  }
 
   const client = new Anthropic({ apiKey });
 
@@ -32,8 +37,8 @@ export async function generateStillViaHiggsfield(
     type: "url",
     url: mcpUrl,
     name: "higgsfield",
+    authorization_token: mcpToken,
   };
-  if (mcpToken) mcpServer.authorization_token = mcpToken;
 
   const aspect = opts.aspectRatio || "2:3";
 

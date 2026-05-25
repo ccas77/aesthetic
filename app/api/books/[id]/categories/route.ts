@@ -1,0 +1,78 @@
+import { NextResponse } from "next/server";
+import {
+  readBooks,
+  upsertBook,
+  slugify,
+  uniqueId,
+  type BookCategory,
+} from "@/lib/books-store";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+interface RouteParams {
+  params: Promise<{ id: string }>;
+}
+
+// Accepts either a single category { label, prompt, id? }
+// or a bulk shape { categories: [{ label, prompt, id? }, ...] }
+// Bulk paste rows of "label | prompt" or "id, label, prompt" are pre-parsed client-side.
+export async function POST(req: Request, { params }: RouteParams) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return NextResponse.json(
+      { error: "BLOB_READ_WRITE_TOKEN not set" },
+      { status: 503 },
+    );
+  }
+  const { id } = await params;
+  let body: { categories?: unknown; label?: unknown; prompt?: unknown; id?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
+  }
+
+  const books = await readBooks();
+  const book = books.find((b) => b.id === id);
+  if (!book) {
+    return NextResponse.json({ error: "book not found" }, { status: 404 });
+  }
+
+  const incomingRaw: unknown[] = Array.isArray(body.categories)
+    ? (body.categories as unknown[])
+    : [body];
+
+  const taken = new Set(book.categories.map((c) => c.id));
+  const added: BookCategory[] = [];
+  const rejected: Array<{ index: number; reason: string }> = [];
+
+  incomingRaw.forEach((raw, idx) => {
+    if (!raw || typeof raw !== "object") {
+      rejected.push({ index: idx, reason: "not an object" });
+      return;
+    }
+    const r = raw as { id?: unknown; label?: unknown; prompt?: unknown };
+    const label = typeof r.label === "string" ? r.label.trim() : "";
+    const prompt = typeof r.prompt === "string" ? r.prompt.trim() : "";
+    if (!label || !prompt) {
+      rejected.push({ index: idx, reason: "label and prompt required" });
+      return;
+    }
+    const requestedId =
+      typeof r.id === "string" && r.id.trim() ? slugify(r.id.trim()) : slugify(label);
+    const catId = uniqueId(requestedId, taken);
+    taken.add(catId);
+    added.push({ id: catId, label, prompt });
+  });
+
+  if (!added.length) {
+    return NextResponse.json(
+      { error: "no valid categories provided", rejected },
+      { status: 400 },
+    );
+  }
+
+  book.categories.push(...added);
+  await upsertBook(book);
+  return NextResponse.json({ book, added, rejected });
+}

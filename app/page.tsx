@@ -82,6 +82,15 @@ export default function Home() {
       {stage === "idle" && (
         <div className="space-y-16">
 
+          {progress.phase.startsWith("error") && (
+            <div className="border border-red-700 bg-red-50 px-5 py-4 text-red-900">
+              <div className="h-mono text-[10px] uppercase tracking-[0.2em] mb-1">
+                render failed
+              </div>
+              <div className="text-sm break-words">{progress.phase}</div>
+            </div>
+          )}
+
           <Step num="i" title="the song">
             <input
               ref={fileRef}

@@ -66,9 +66,13 @@ export async function renderVideo(args: RenderArgs): Promise<string> {
   onProgress({ phase: "preparing audio", pct: 20 });
   await ff.writeFile("audio.mp3", audio);
 
-  // Write each still in
-  onProgress({ phase: "loading stills", pct: 25 });
+  // Write each still in — progress updated per iteration so the bar moves
+  // and any silent hang is visible (last-rendered number is the one that failed).
   for (let i = 0; i < shots.length; i++) {
+    onProgress({
+      phase: `loading stills (${i + 1}/${shots.length})`,
+      pct: 25 + (i / shots.length) * 5,
+    });
     const data = await fetchFile(shots[i].url);
     await ff.writeFile(`s${i}.jpg`, data);
   }

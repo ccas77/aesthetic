@@ -93,6 +93,9 @@ export async function renderVideo(args: RenderArgs): Promise<string> {
   const totalCuts = Math.ceil(audioDurationSec / cutSec);
 
   onProgress({ phase: "selecting shots", pct: 15 });
+  if (library.length === 0) {
+    throw new Error("library is empty — no stills available to render with");
+  }
   const shots = pickShotList(library, totalCuts);
 
   // Write the audio in

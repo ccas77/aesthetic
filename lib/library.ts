@@ -1,6 +1,7 @@
-// Library of stills bundled with the app. v1 ships with 11 frames pulled from
-// the reference video. Production: replace with Vercel Blob URLs + a richer
-// taxonomy, and let Higgsfield top up the pool nightly.
+// Library of stills bundled with the app.
+// Currently empty — placeholder stills were removed because they were derived
+// from someone else's content. Production: populate via Higgsfield-generated
+// originals stored in Vercel Blob, fetched at render time.
 
 export interface Still {
   id: string;
@@ -9,19 +10,7 @@ export interface Still {
   tags: string[];
 }
 
-export const LIBRARY: Still[] = [
-  { id: "journal",     url: "/library/still_00.jpg", tags: ["hands", "writing", "intimate"] },
-  { id: "raincoat",    url: "/library/still_01.jpg", tags: ["window", "rain", "moody"] },
-  { id: "rainwindow",  url: "/library/still_02.jpg", tags: ["window", "rain", "interior"] },
-  { id: "letters",     url: "/library/still_03.jpg", tags: ["hands", "books", "intimate"] },
-  { id: "chess",       url: "/library/still_04.jpg", tags: ["objects", "interior", "still-life"] },
-  { id: "fabric",      url: "/library/still_05.jpg", tags: ["texture", "intimate", "soft"] },
-  { id: "swing",       url: "/library/still_06.jpg", tags: ["figure", "outdoor", "ethereal"] },
-  { id: "castle",      url: "/library/still_07.jpg", tags: ["architecture", "outdoor", "gothic"] },
-  { id: "bookshelf",   url: "/library/still_08.jpg", tags: ["hands", "books", "library"] },
-  { id: "teacup",      url: "/library/still_09.jpg", tags: ["objects", "books", "still-life"] },
-  { id: "stacks",      url: "/library/still_10.jpg", tags: ["hands", "books", "library"] },
-];
+export const LIBRARY: Still[] = [];
 
 // Pick a varied shot list. Prefer mixing tags so we don't get e.g. 4 book shots in a row.
 export function pickShotList(library: Still[], count: number, seed = Date.now()): Still[] {

@@ -156,6 +156,7 @@ export async function renderVideo(args: RenderArgs): Promise<string> {
     "eq=saturation=0.18:contrast=1.05:brightness=-0.04,",
     "curves=r='0/0 0.3/0.32 0.7/0.72 1/0.85':g='0/0 0.5/0.46 1/0.78':b='0/0 0.5/0.4 1/0.7',",
     "drawtext=fontfile=caption.ttf:textfile=quote.txt:fontcolor=white:fontsize=42:line_spacing=14:",
+    "borderw=3:bordercolor=black:text_align=center:",
     "x=(w-text_w)/2:y=(h-text_h)/2:box=0:fix_bounds=true,",
     "format=yuv420p[v]",
   ].join("");

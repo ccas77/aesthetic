@@ -53,8 +53,11 @@ export async function POST(req: Request) {
   }
 
   try {
+    const fullPrompt = book.stylePrompt
+      ? `${book.stylePrompt}\n\nSubject: ${category.prompt}`
+      : category.prompt;
     const imageUrl = await generateStillViaHiggsfield({
-      prompt: category.prompt,
+      prompt: fullPrompt,
       aspectRatio: "2:3",
     });
     const dl = await fetch(imageUrl);

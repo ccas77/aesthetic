@@ -14,6 +14,10 @@ export interface Book {
   id: string;
   title: string;
   coverUrl: string;
+  // Optional per-book aesthetic brief. Prepended to every category's
+  // subject prompt at generation time so each book carries its own
+  // visual style without baking style into individual category prompts.
+  stylePrompt?: string;
   categories: BookCategory[];
   createdAt: string;
 }

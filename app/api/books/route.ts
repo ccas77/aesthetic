@@ -41,6 +41,7 @@ export async function POST(req: Request) {
   const title = String(form.get("title") || "").trim();
   const cover = form.get("cover");
   const copyFromBookId = String(form.get("copyFromBookId") || "").trim();
+  const stylePrompt = String(form.get("stylePrompt") || "").trim();
   if (!title) {
     return NextResponse.json({ error: "title required" }, { status: 400 });
   }
@@ -72,6 +73,7 @@ export async function POST(req: Request) {
     id,
     title,
     coverUrl: blob.url,
+    stylePrompt: stylePrompt || undefined,
     categories,
     createdAt: new Date().toISOString(),
   };

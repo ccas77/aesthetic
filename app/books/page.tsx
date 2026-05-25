@@ -122,6 +122,7 @@ function AddBookForm({
   const [title, setTitle] = useState("");
   const [cover, setCover] = useState<File | null>(null);
   const [copyFromId, setCopyFromId] = useState("");
+  const [stylePrompt, setStylePrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -136,6 +137,7 @@ function AddBookForm({
       form.append("title", title.trim());
       form.append("cover", cover);
       if (copyFromId) form.append("copyFromBookId", copyFromId);
+      if (stylePrompt.trim()) form.append("stylePrompt", stylePrompt.trim());
       const r = await fetch("/api/books", { method: "POST", body: form });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
@@ -146,13 +148,14 @@ function AddBookForm({
       setTitle("");
       setCover(null);
       setCopyFromId("");
+      setStylePrompt("");
       await onCreated(data.book.id);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [title, cover, copyFromId, onCreated]);
+  }, [title, cover, copyFromId, stylePrompt, onCreated]);
 
   return (
     <div className="bg-surface border border-line rounded-md px-4 py-4">
@@ -199,6 +202,22 @@ function AddBookForm({
             </select>
           </label>
         )}
+        <label className="block md:col-span-2">
+          <span className="text-xs text-muted block mb-1">
+            Style brief (optional)
+          </span>
+          <textarea
+            value={stylePrompt}
+            onChange={(e) => setStylePrompt(e.target.value)}
+            placeholder="e.g. black-dominant low-key photography, shadow-weighted exposure, suppressed midtones, near-monochromatic palette…"
+            rows={3}
+            className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
+          />
+          <span className="text-xs text-dim block mt-1">
+            Prepended to every category prompt when generating this book&rsquo;s stills.
+            Leave blank if you want category prompts to stand alone.
+          </span>
+        </label>
       </div>
       <div className="flex items-center gap-3 mt-4">
         <button
@@ -319,7 +338,8 @@ function BookCard({
         </div>
       </div>
       {expanded && (
-        <div className="border-t border-line bg-surface px-4 py-5">
+        <div className="border-t border-line bg-surface px-4 py-5 space-y-6">
+          <StyleEditor book={book} onChanged={onChanged} />
           <CategoryManager
             book={book}
             stillIds={stillIds}
@@ -328,6 +348,69 @@ function BookCard({
         </div>
       )}
     </article>
+  );
+}
+
+function StyleEditor({
+  book,
+  onChanged,
+}: {
+  book: Book;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [draft, setDraft] = useState(book.stylePrompt ?? "");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const dirty = (book.stylePrompt ?? "") !== draft;
+
+  const save = useCallback(async () => {
+    setBusy(true);
+    setStatus("");
+    try {
+      const r = await fetch(`/api/books/${book.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stylePrompt: draft }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `save failed (${r.status})`);
+      }
+      setStatus("saved");
+      await onChanged();
+    } catch (e) {
+      setStatus((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [book.id, draft, onChanged]);
+
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        style brief
+      </div>
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="e.g. black-dominant low-key photography, shadow-weighted exposure, suppressed midtones…"
+        rows={4}
+        className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
+      />
+      <div className="text-xs text-dim mt-1">
+        Prepended to every category prompt when generating this book&rsquo;s stills. Leave blank for none.
+      </div>
+      <div className="flex items-center gap-3 mt-2">
+        <button
+          onClick={save}
+          disabled={busy || !dirty}
+          className="px-4 py-1.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+        >
+          {busy ? "saving…" : "Save style"}
+        </button>
+        {status && <span className="text-xs text-muted">{status}</span>}
+      </div>
+    </div>
   );
 }
 

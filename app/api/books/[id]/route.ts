@@ -41,7 +41,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       book.coverUrl = blob.url;
     }
   } else {
-    let body: { title?: string };
+    let body: { title?: string; stylePrompt?: string };
     try {
       body = await req.json();
     } catch {
@@ -49,6 +49,9 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     if (typeof body.title === "string" && body.title.trim()) {
       book.title = body.title.trim();
+    }
+    if (typeof body.stylePrompt === "string") {
+      book.stylePrompt = body.stylePrompt.trim() || undefined;
     }
   }
 

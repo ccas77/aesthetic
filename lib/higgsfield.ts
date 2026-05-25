@@ -43,25 +43,26 @@ export async function generateStillViaHiggsfield(
   const aspect = opts.aspectRatio || "2:3";
 
   // We use a tight system prompt that forces tool use rather than commentary.
-  const response = await client.messages.create(
-    {
-      model: "claude-opus-4-7",
-      max_tokens: 2048,
-      mcp_servers: [
-        mcpServer as unknown as Anthropic.Beta.BetaRequestMCPServerURLDefinition,
-      ],
-      system:
-        "Use the Higgsfield generate_image tool to produce exactly one image. " +
-        `Always set aspect_ratio to "${aspect}". Use the nano_banana_pro model. ` +
-        "Return only the tool result — no commentary.",
-      messages: [
-        {
-          role: "user",
-          content: `Generate this image with aspect_ratio="${aspect}" using nano_banana_pro:\n\n${opts.prompt}`,
-        },
-      ],
-    } as unknown as Anthropic.MessageCreateParamsNonStreaming,
-  );
+  // The mcp_servers field is a beta feature; route through client.beta.messages
+  // and pass the mcp-client beta flag so Anthropic accepts the parameter.
+  const response = await client.beta.messages.create({
+    model: "claude-opus-4-7",
+    max_tokens: 2048,
+    betas: ["mcp-client-2025-04-04"],
+    mcp_servers: [
+      mcpServer as unknown as Anthropic.Beta.BetaRequestMCPServerURLDefinition,
+    ],
+    system:
+      "Use the Higgsfield generate_image tool to produce exactly one image. " +
+      `Always set aspect_ratio to "${aspect}". Use the nano_banana_pro model. ` +
+      "Return only the tool result, no commentary.",
+    messages: [
+      {
+        role: "user",
+        content: `Generate this image with aspect_ratio="${aspect}" using nano_banana_pro:\n\n${opts.prompt}`,
+      },
+    ],
+  });
 
   // Walk the response content blocks looking for the image URL in any
   // mcp_tool_result.

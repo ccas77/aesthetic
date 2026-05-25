@@ -21,7 +21,6 @@ interface RenderArgs {
   audio: Uint8Array;
   bpm: number;
   quote: string;
-  vibe: string;
   library: Still[];
   onProgress: (p: RenderProgress) => void;
 }

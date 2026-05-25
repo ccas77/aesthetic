@@ -7,17 +7,9 @@ import { LIBRARY } from "@/lib/library";
 
 type Stage = "idle" | "analyzing" | "rendering" | "done";
 
-const VIBES = [
-  { id: "longing",  label: "longing",  hint: "slow ache" },
-  { id: "healing",  label: "healing",  hint: "after the storm" },
-  { id: "fury",     label: "fury",     hint: "quiet rage" },
-  { id: "wistful",  label: "wistful",  hint: "soft nostalgia" },
-];
-
 export default function Home() {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [quote, setQuote] = useState("");
-  const [vibe, setVibe] = useState("longing");
   const [stage, setStage] = useState<Stage>("idle");
   const [progress, setProgress] = useState<RenderProgress>({ phase: "", pct: 0 });
   const [bpm, setBpm] = useState<number | null>(null);
@@ -38,7 +30,6 @@ export default function Home() {
         audio: new Uint8Array(audioBuf),
         bpm: tempo,
         quote,
-        vibe,
         library: LIBRARY,
         onProgress: setProgress,
       });
@@ -49,7 +40,7 @@ export default function Home() {
       setProgress({ phase: `error — ${(e as Error).message}`, pct: 0 });
       setStage("idle");
     }
-  }, [audioFile, quote, vibe]);
+  }, [audioFile, quote]);
 
   const reset = () => {
     setStage("idle"); setOutputUrl(null); setProgress({ phase: "", pct: 0 });
@@ -72,7 +63,7 @@ export default function Home() {
           </div>
         </div>
         <p className="h-serif-italic text-2xl md:text-3xl text-muted mt-6 max-w-xl leading-tight">
-          a song, a quote, a vibe — returns a video, fit for the feed.
+          a song and a quote — returns a video, fit for the feed.
         </p>
 
         {/* Tiny preview chip showing the output palette */}
@@ -135,27 +126,6 @@ export default function Home() {
             <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-2 flex justify-between">
               <span>{quote.length} chars</span>
               <span>three paragraphs reads best</span>
-            </div>
-          </Step>
-
-          <Step num="iii" title="the mood">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {VIBES.map((v) => (
-                <button
-                  key={v.id}
-                  onClick={() => setVibe(v.id)}
-                  className={`text-left px-5 py-4 border transition-all ${
-                    vibe === v.id
-                      ? "border-ink bg-surface text-ink"
-                      : "border-line2 text-muted hover:border-muted hover:text-ink"
-                  }`}
-                >
-                  <div className="h-serif-italic text-xl">{v.label}</div>
-                  <div className="h-mono text-[10px] uppercase tracking-[0.15em] mt-1 opacity-70">
-                    {v.hint}
-                  </div>
-                </button>
-              ))}
             </div>
           </Step>
 

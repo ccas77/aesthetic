@@ -20,6 +20,32 @@ export interface RenderProgress {
 // Output length cap. Long Suno tracks are trimmed to the first N seconds.
 export const MAX_DURATION_SEC = 15;
 
+// Max characters per line for the burned-in caption. Calculated from
+// fontsize=42 on a 1080-wide canvas with ~100px margin per side.
+const MAX_CHARS_PER_LINE = 30;
+
+// Wrap a multi-line string so no individual line exceeds maxChars characters.
+// Respects existing newlines (paragraph breaks) — only wraps within them.
+function wrapText(text: string, maxChars: number): string {
+  return text.split("\n").map((line) => {
+    if (line.length <= maxChars) return line;
+    const words = line.split(" ");
+    const out: string[] = [];
+    let cur = "";
+    for (const w of words) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (next.length <= maxChars) {
+        cur = next;
+      } else {
+        if (cur) out.push(cur);
+        cur = w;
+      }
+    }
+    if (cur) out.push(cur);
+    return out.join("\n");
+  }).join("\n");
+}
+
 interface RenderArgs {
   audio: Uint8Array;
   bpm: number;
@@ -100,9 +126,11 @@ export async function renderVideo(args: RenderArgs): Promise<string> {
   lines.push(`file 's${shots.length - 1}.jpg'`);
   await ff.writeFile("concat.txt", new TextEncoder().encode(lines.join("\n")));
 
-  // Write the quote out as a textfile so drawtext can read it safely
-  // (avoids needing to escape special chars in the filter string)
-  await ff.writeFile("quote.txt", new TextEncoder().encode(quote));
+  // Write the quote out as a textfile so drawtext can read it safely.
+  // FFmpeg's drawtext does NOT auto-wrap — it only respects \n. We pre-wrap
+  // by word so long lines don't run off the canvas.
+  const wrappedQuote = wrapText(quote, MAX_CHARS_PER_LINE);
+  await ff.writeFile("quote.txt", new TextEncoder().encode(wrappedQuote));
 
   // Set up FFmpeg progress hook
   ff.on("progress", ({ progress }: { progress: number }) => {

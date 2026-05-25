@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { renderVideo, type RenderProgress } from "@/lib/render";
 import { detectTempo } from "@/lib/beat-detect";
 import { LIBRARY } from "@/lib/library";
@@ -14,8 +14,105 @@ export default function Home() {
   const [progress, setProgress] = useState<RenderProgress>({ phase: "", pct: 0 });
   const [bpm, setBpm] = useState<number | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
+  const [persistState, setPersistState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [persistMsg, setPersistMsg] = useState<string>("");
   const fileRef = useRef<HTMLInputElement>(null);
   const lastPhaseRef = useRef<string>("");
+  const hydratedRef = useRef<boolean>(false);
+
+  // === Persistence: load saved state on mount ===
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/state");
+        if (!r.ok) return;
+        const data = (await r.json()) as {
+          quote?: string;
+          audioUrl?: string | null;
+          audioName?: string | null;
+          audioSize?: number | null;
+          configured?: boolean;
+        };
+        if (cancelled) return;
+        if (data.configured === false) {
+          setPersistMsg("server storage not configured — saves won't persist");
+        }
+        if (data.quote) setQuote(data.quote);
+        if (data.audioUrl) {
+          // Pull the audio back as a File so the renderer can use it unchanged
+          try {
+            const blob = await (await fetch(data.audioUrl)).blob();
+            if (cancelled) return;
+            const name = data.audioName || "saved-track.mp3";
+            const file = new File([blob], name, {
+              type: blob.type || "audio/mpeg",
+            });
+            setAudioFile(file);
+          } catch {
+            /* couldn't refetch — fine, user re-uploads */
+          }
+        }
+      } catch {
+        /* offline or storage not configured — silent */
+      } finally {
+        hydratedRef.current = true;
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // === Persistence: debounced quote save ===
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    const handle = setTimeout(() => {
+      void (async () => {
+        try {
+          setPersistState("saving");
+          const r = await fetch("/api/save-quote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ quote }),
+          });
+          if (r.ok) {
+            setPersistState("saved");
+            setPersistMsg("saved");
+          } else {
+            const err = await r.json().catch(() => ({}));
+            setPersistState("error");
+            setPersistMsg(err.error || `save failed (${r.status})`);
+          }
+        } catch (e) {
+          setPersistState("error");
+          setPersistMsg((e as Error).message);
+        }
+      })();
+    }, 800);
+    return () => clearTimeout(handle);
+  }, [quote]);
+
+  // === Persistence: save audio when user uploads a new file ===
+  const onAudioPicked = useCallback(async (file: File | null) => {
+    setAudioFile(file);
+    if (!file || !hydratedRef.current) return;
+    try {
+      setPersistState("saving");
+      const form = new FormData();
+      form.append("audio", file);
+      const r = await fetch("/api/save-audio", { method: "POST", body: form });
+      if (r.ok) {
+        setPersistState("saved");
+        setPersistMsg("saved");
+      } else {
+        const err = await r.json().catch(() => ({}));
+        setPersistState("error");
+        setPersistMsg(err.error || `upload failed (${r.status})`);
+      }
+    } catch (e) {
+      setPersistState("error");
+      setPersistMsg((e as Error).message);
+    }
+  }, []);
 
   // Stringify any thrown value, including non-Error throws (strings, null, undefined,
   // custom objects). FFmpeg.wasm in particular sometimes rejects with non-Errors.
@@ -72,8 +169,9 @@ export default function Home() {
 
   const reset = () => {
     setStage("idle"); setOutputUrl(null); setProgress({ phase: "", pct: 0 });
-    setAudioFile(null); setQuote(""); setBpm(null);
-    if (fileRef.current) fileRef.current.value = "";
+    setBpm(null);
+    // Keep audioFile + quote — they're persisted server-side and the user
+    // shouldn't have to re-enter them just because they want another render.
   };
 
   return (
@@ -88,6 +186,15 @@ export default function Home() {
           <div className="text-right">
             <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim">№ 001</div>
             <div className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-1">v 0.1</div>
+            {persistMsg && (
+              <div
+                className={`h-mono text-[10px] uppercase tracking-[0.2em] mt-1 ${
+                  persistState === "error" ? "text-red-700" : "text-dim"
+                }`}
+              >
+                {persistState === "saving" ? "saving…" : persistMsg}
+              </div>
+            )}
           </div>
         </div>
         <p className="h-serif-italic text-2xl md:text-3xl text-muted mt-6 max-w-xl leading-tight">
@@ -124,7 +231,7 @@ export default function Home() {
               ref={fileRef}
               type="file"
               accept="audio/*"
-              onChange={(e) => setAudioFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => onAudioPicked(e.target.files?.[0] ?? null)}
               className="hidden"
               id="audio-upload"
             />

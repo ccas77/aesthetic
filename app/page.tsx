@@ -318,9 +318,6 @@ export default function Home() {
               connect higgsfield
             </a>
           </div>
-          <p className="h-mono text-[10px] uppercase tracking-[0.2em] text-dim mt-4 leading-relaxed">
-            needs ANTHROPIC_API_KEY · HIGGSFIELD_TOKEN_SECRET · BLOB_READ_WRITE_TOKEN in vercel env, then click connect higgsfield once
-          </p>
         </section>
       )}
 

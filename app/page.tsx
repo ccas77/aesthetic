@@ -15,12 +15,36 @@ export default function Home() {
   const [bpm, setBpm] = useState<number | null>(null);
   const [outputUrl, setOutputUrl] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const lastPhaseRef = useRef<string>("");
+
+  // Stringify any thrown value, including non-Error throws (strings, null, undefined,
+  // custom objects). FFmpeg.wasm in particular sometimes rejects with non-Errors.
+  function describeError(e: unknown): string {
+    if (e instanceof Error) {
+      return e.message || e.toString() || e.name || "Error with no details";
+    }
+    if (typeof e === "string") return e;
+    if (e === undefined) return "thrown undefined (FFmpeg internal failure most likely)";
+    if (e === null) return "thrown null";
+    try {
+      const s = JSON.stringify(e);
+      return s === "{}" ? Object.prototype.toString.call(e) : s;
+    } catch {
+      return Object.prototype.toString.call(e);
+    }
+  }
+
+  // Wrap setProgress so we always remember the most recent phase for error reporting.
+  const reportProgress = useCallback((p: RenderProgress) => {
+    lastPhaseRef.current = p.phase;
+    setProgress(p);
+  }, []);
 
   const onGenerate = useCallback(async () => {
     if (!audioFile || !quote.trim()) return;
     try {
       setStage("analyzing");
-      setProgress({ phase: "analyzing audio", pct: 5 });
+      reportProgress({ phase: "analyzing audio", pct: 5 });
       const audioBuf = await audioFile.arrayBuffer();
       const tempo = await detectTempo(audioBuf.slice(0));
       setBpm(tempo);
@@ -31,16 +55,20 @@ export default function Home() {
         bpm: tempo,
         quote,
         library: LIBRARY,
-        onProgress: setProgress,
+        onProgress: reportProgress,
       });
       setOutputUrl(url);
       setStage("done");
     } catch (e) {
-      console.error(e);
-      setProgress({ phase: `error — ${(e as Error).message}`, pct: 0 });
+      console.error("Render failed during phase:", lastPhaseRef.current, "Error:", e);
+      const msg = describeError(e);
+      setProgress({
+        phase: `error during "${lastPhaseRef.current || "setup"}" — ${msg}`,
+        pct: 0,
+      });
       setStage("idle");
     }
-  }, [audioFile, quote]);
+  }, [audioFile, quote, reportProgress]);
 
   const reset = () => {
     setStage("idle"); setOutputUrl(null); setProgress({ phase: "", pct: 0 });

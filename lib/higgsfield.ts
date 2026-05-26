@@ -18,6 +18,10 @@ interface GenerateOptions {
   prompt: string;
   aspectRatio?: string;
   model?: string;
+  // Character / location reference image URLs. Higgsfield's image
+  // models accept these as visual anchors and use them as reference
+  // when generating the prompted scene.
+  inputImages?: string[];
 }
 
 // Total time budget for one generation: clerk + submit + polling. The
@@ -39,7 +43,7 @@ export async function generateStillViaHiggsfield(
     model,
     params: {
       prompt: opts.prompt,
-      input_images: [],
+      input_images: opts.inputImages ?? [],
       width,
       height,
       batch_size: 1,

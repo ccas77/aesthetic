@@ -5,7 +5,9 @@ import Link from "next/link";
 import type {
   Book,
   BookCategory,
+  BookReference,
   Caption,
+  CharacterSex,
   Song,
 } from "@/lib/books-store";
 
@@ -393,6 +395,7 @@ function BookCard({
           <StyleEditor book={book} onChanged={onChanged} />
           <CaptionsSection book={book} onChanged={onChanged} />
           <MusicSection book={book} onChanged={onChanged} />
+          <ReferencesSection book={book} onChanged={onChanged} />
           <ImagePromptsSection book={book} onChanged={onChanged} />
           <LibrarySection
             book={book}
@@ -847,6 +850,208 @@ function SongRow({
       >
         remove
       </button>
+    </div>
+  );
+}
+
+function ReferencesSection({
+  book,
+  onChanged,
+}: {
+  book: Book;
+  onChanged: OnChanged;
+}) {
+  const [sex, setSex] = useState<CharacterSex>("female");
+  const [label, setLabel] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const refs = book.references ?? [];
+  const male = refs.filter((r) => r.sex === "male");
+  const female = refs.filter((r) => r.sex === "female");
+
+  const submit = useCallback(async () => {
+    if (!label.trim() || !file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("label", label.trim());
+      form.append("sex", sex);
+      form.append("file", file);
+      const r = await fetch(`/api/books/${book.id}/references`, {
+        method: "POST",
+        body: form,
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `upload failed (${r.status})`);
+      }
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
+      setLabel("");
+      setFile(null);
+      await onChanged(data.book);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [label, sex, file, book.id, onChanged]);
+
+  return (
+    <div>
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        references · {refs.length}
+      </h4>
+      <p className="text-xs text-dim mb-3">
+        Character sheets and other image references. Sent to Higgsfield as
+        input_images on every generation so the model uses them as visual
+        anchors. Group by sex so we can route them per category later.
+      </p>
+      <div className="bg-bg border border-line rounded-md px-4 py-4 space-y-3 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-[10rem_1fr] gap-3">
+          <label className="block">
+            <span className="text-xs text-muted block mb-1">Sex</span>
+            <select
+              value={sex}
+              onChange={(e) => setSex(e.target.value as CharacterSex)}
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
+            >
+              <option value="female">female</option>
+              <option value="male">male</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-muted block mb-1">Label</span>
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="character name or scene"
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
+            />
+          </label>
+        </div>
+        <div>
+          <span className="text-xs text-muted block mb-1">Image</span>
+          <label className="inline-flex items-center gap-3 cursor-pointer">
+            <span className="px-3 py-2 border border-line2 rounded bg-bg text-ink hover:bg-ink hover:text-bg transition-colors">
+              {file ? "Replace image" : "Choose image"}
+            </span>
+            <span className="text-sm text-muted">
+              {file
+                ? `${file.name} · ${(file.size / 1024).toFixed(0)} kb`
+                : "no file chosen"}
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={submit}
+            disabled={!label.trim() || !file || busy}
+            className="px-5 py-2 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+          >
+            {busy ? "uploading…" : "Add reference"}
+          </button>
+          {error && <span className="text-sm text-red-700">{error}</span>}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ReferenceGroup
+          bookId={book.id}
+          label="female"
+          refs={female}
+          onChanged={onChanged}
+        />
+        <ReferenceGroup
+          bookId={book.id}
+          label="male"
+          refs={male}
+          onChanged={onChanged}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ReferenceGroup({
+  bookId,
+  label,
+  refs,
+  onChanged,
+}: {
+  bookId: string;
+  label: string;
+  refs: BookReference[];
+  onChanged: OnChanged;
+}) {
+  return (
+    <div>
+      <div className="text-xs text-muted uppercase tracking-wider mb-2">
+        {label} · {refs.length}
+      </div>
+      {refs.length === 0 ? (
+        <div className="text-xs text-dim bg-bg border border-line rounded px-3 py-3">
+          None yet.
+        </div>
+      ) : (
+        <ul className="grid grid-cols-2 gap-2">
+          {refs.map((r) => (
+            <li key={r.id}>
+              <ReferenceTile bookId={bookId} ref_={r} onChanged={onChanged} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ReferenceTile({
+  bookId,
+  ref_,
+  onChanged,
+}: {
+  bookId: string;
+  ref_: BookReference;
+  onChanged: OnChanged;
+}) {
+  const [busy, setBusy] = useState(false);
+  const remove = useCallback(async () => {
+    if (!confirm(`Remove reference "${ref_.label}"?`)) return;
+    setBusy(true);
+    const r = await fetch(`/api/books/${bookId}/references/${ref_.id}`, {
+      method: "DELETE",
+    });
+    if (r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
+      await onChanged(data.book);
+    }
+    setBusy(false);
+  }, [bookId, ref_.id, ref_.label, onChanged]);
+  return (
+    <div className="bg-bg border border-line rounded-md overflow-hidden">
+      <img
+        src={ref_.url}
+        alt={ref_.label}
+        className="w-full aspect-[2/3] object-cover"
+      />
+      <div className="px-2.5 py-2">
+        <div className="text-sm text-ink truncate">{ref_.label}</div>
+        <button
+          onClick={remove}
+          disabled={busy}
+          className="text-xs text-red-700 hover:text-red-900 mt-1"
+        >
+          remove
+        </button>
+      </div>
     </div>
   );
 }

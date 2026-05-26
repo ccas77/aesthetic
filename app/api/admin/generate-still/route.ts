@@ -58,9 +58,15 @@ export async function POST(req: Request) {
     const fullPrompt = book.stylePrompt
       ? `${book.stylePrompt}\n\nSubject: ${category.prompt}`
       : category.prompt;
+    // Send every reference the book has registered (male + female)
+    // so Higgsfield can use them as visual anchors. Future work: per
+    // category, restrict to one sex if the prompt is clearly about
+    // one character.
+    const inputImages = (book.references ?? []).map((r) => r.url);
     const imageUrl = await generateStillViaHiggsfield({
       prompt: fullPrompt,
       aspectRatio: "2:3",
+      inputImages,
     });
     const dl = await fetch(imageUrl);
     if (!dl.ok) {

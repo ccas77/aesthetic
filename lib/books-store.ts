@@ -33,6 +33,16 @@ export interface Song {
   createdAt: string;
 }
 
+export type CharacterSex = "male" | "female";
+
+export interface BookReference {
+  id: string;
+  label: string;
+  url: string;
+  sex: CharacterSex;
+  createdAt: string;
+}
+
 export interface Book {
   id: string;
   title: string;
@@ -47,6 +57,10 @@ export interface Book {
   // into captions on read.
   quotes?: Caption[];
   songs?: Song[];
+  // Character reference images grouped by sex. Passed to Higgsfield
+  // as input_images on every generation for this book so the model
+  // can use them as visual reference.
+  references?: BookReference[];
   // PostBridge social account IDs to publish this book's renders to.
   // Empty / undefined means no auto-posting even if global autopost
   // is enabled.

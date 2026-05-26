@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Book } from "@/lib/books-store";
 import type { SharedStill } from "@/lib/shared-store";
+import { resizeImageForUpload } from "@/app/_components/resizeImage";
 
 type Tab = "shared" | "by-book";
 
@@ -72,9 +73,10 @@ export default function LibraryPage() {
     setAddBusy(true);
     setAddError("");
     try {
+      const resized = await resizeImageForUpload(addFile);
       const form = new FormData();
       form.append("label", addLabel.trim());
-      form.append("file", addFile);
+      form.append("file", resized);
       const r = await fetch("/api/shared", { method: "POST", body: form });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));

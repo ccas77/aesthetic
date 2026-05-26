@@ -10,6 +10,7 @@ import type {
   CharacterSex,
   Song,
 } from "@/lib/books-store";
+import { resizeImageForUpload } from "@/app/_components/resizeImage";
 
 // Update callback. Pass an updated Book to patch state in place (the
 // API responses return the post-write book, which sidesteps the Blob
@@ -177,9 +178,10 @@ function AddBookForm({
     setError("");
     setSuccess("");
     try {
+      const resizedCover = await resizeImageForUpload(cover);
       const form = new FormData();
       form.append("title", title.trim());
-      form.append("cover", cover);
+      form.append("cover", resizedCover);
       if (copyFromId) form.append("copyFromBookId", copyFromId);
       if (stylePrompt.trim()) form.append("stylePrompt", stylePrompt.trim());
       const r = await fetch("/api/books", { method: "POST", body: form });
@@ -875,10 +877,14 @@ function ReferencesSection({
     setBusy(true);
     setError("");
     try {
+      // Downscale before upload so the request body stays under
+      // Vercel's ~4.5 MB function limit even for full-resolution
+      // character sheets straight off a camera or phone.
+      const resized = await resizeImageForUpload(file);
       const form = new FormData();
       form.append("label", label.trim());
       form.append("sex", sex);
-      form.append("file", file);
+      form.append("file", resized);
       const r = await fetch(`/api/books/${book.id}/references`, {
         method: "POST",
         body: form,
@@ -1405,10 +1411,11 @@ function LibrarySlot({
       setBusy(true);
       setStatus("uploading…");
       try {
+        const resized = await resizeImageForUpload(file);
         const form = new FormData();
         form.append("bookId", bookId);
         form.append("category", category.id);
-        form.append("file", file);
+        form.append("file", resized);
         const r = await fetch("/api/admin/upload-still", {
           method: "POST",
           body: form,

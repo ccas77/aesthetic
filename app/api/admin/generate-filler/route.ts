@@ -6,7 +6,7 @@ import { slugify, uniqueId } from "@/lib/books-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 // POST /api/admin/generate-filler { label, prompt }
 // Generates a single filler still via Higgsfield, saves to Blob, and

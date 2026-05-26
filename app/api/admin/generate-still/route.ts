@@ -4,10 +4,12 @@ import { readBooks } from "@/lib/books-store";
 import { generateStillViaHiggsfield } from "@/lib/higgsfield";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Higgsfield's direct API + polling can take up to ~2 minutes end-to-end.
+// Pro tier allows 300s; 180 leaves margin.
+export const maxDuration = 180;
 
 // POST /api/admin/generate-still { bookId: string, category: string }
-// Generates one still via Higgsfield (through Anthropic API + MCP),
+// Generates one still on Higgsfield's unlimited-mode direct API,
 // downloads the result, and saves it to Vercel Blob at
 // books/{bookId}/library/{category}.jpg.
 export async function POST(req: Request) {

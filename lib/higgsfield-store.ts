@@ -40,6 +40,8 @@ export async function writeTokenRow(row: TokenRow): Promise<void> {
     contentType: "application/json",
     addRandomSuffix: false,
     allowOverwrite: true,
+    // Mutable metadata; bypass CDN cache so subsequent reads see writes.
+    cacheControlMaxAge: 0,
   });
 }
 

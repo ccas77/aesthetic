@@ -53,6 +53,9 @@ export async function writeBooks(books: Book[]): Promise<void> {
     contentType: "application/json",
     addRandomSuffix: false,
     allowOverwrite: true,
+    // Mutable metadata file; never let the Blob CDN serve a stale copy
+    // or the read-modify-write cycle silently loses subsequent writes.
+    cacheControlMaxAge: 0,
   });
 }
 

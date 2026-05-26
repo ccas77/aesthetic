@@ -169,20 +169,25 @@ function AddBookForm({
             className="w-full bg-bg border border-line2 rounded px-3 py-2 text-ink placeholder:text-dim focus:border-ink focus:outline-none"
           />
         </label>
-        <label className="block">
+        <div>
           <span className="text-xs text-muted block mb-1">Cover image</span>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setCover(e.target.files?.[0] ?? null)}
-            className="block w-full text-sm text-muted file:mr-3 file:px-3 file:py-2 file:border file:border-line2 file:bg-bg file:text-ink file:text-sm file:rounded file:cursor-pointer"
-          />
-          {cover && (
-            <div className="text-xs text-dim mt-1">
-              {cover.name} · {(cover.size / 1024).toFixed(0)} kb
-            </div>
-          )}
-        </label>
+          <label className="inline-flex items-center gap-3 cursor-pointer">
+            <span className="px-3 py-2 border border-line2 rounded bg-bg text-ink hover:bg-ink hover:text-bg transition-colors">
+              {cover ? "Replace image" : "Choose image"}
+            </span>
+            <span className="text-sm text-muted">
+              {cover
+                ? `${cover.name} · ${(cover.size / 1024).toFixed(0)} kb`
+                : "no file chosen"}
+            </span>
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(e) => setCover(e.target.files?.[0] ?? null)}
+            />
+          </label>
+        </div>
         {books.length > 0 && (
           <label className="block md:col-span-2">
             <span className="text-xs text-muted block mb-1">
@@ -878,20 +883,25 @@ function FillerManager({
             />
           </label>
           {mode === "upload" ? (
-            <label className="block">
+            <div>
               <span className="text-xs text-muted block mb-1">Image</span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-sm text-muted file:mr-3 file:px-3 file:py-2 file:border file:border-line2 file:bg-bg file:text-ink file:text-sm file:rounded file:cursor-pointer"
-              />
-              {file && (
-                <div className="text-xs text-dim mt-1">
-                  {file.name} · {(file.size / 1024).toFixed(0)} kb
-                </div>
-              )}
-            </label>
+              <label className="inline-flex items-center gap-3 cursor-pointer">
+                <span className="px-3 py-2 border border-line2 rounded bg-bg text-ink hover:bg-ink hover:text-bg transition-colors">
+                  {file ? "Replace image" : "Choose image"}
+                </span>
+                <span className="text-sm text-muted">
+                  {file
+                    ? `${file.name} · ${(file.size / 1024).toFixed(0)} kb`
+                    : "no file chosen"}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
+              </label>
+            </div>
           ) : (
             <label className="block md:col-span-1">
               <span className="text-xs text-muted block mb-1">Prompt</span>

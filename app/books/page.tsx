@@ -101,10 +101,11 @@ export default function BooksPage() {
 
       <section className="mb-16">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">
-          filler stills · {filler.length}
+          atmospheric stills · {filler.length}
         </h2>
         <p className="text-sm text-muted mb-4">
-          Shared across all books. Used as fallback variety at render time.
+          A shared pool of atmospheric images, used across every book&rsquo;s renders so each
+          video has visual variety even before a book has many of its own categories.
         </p>
         <FillerManager filler={filler} onChanged={refreshFiller} />
       </section>
@@ -1263,7 +1264,7 @@ function FillerManager({
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="filler-1, candles, etc."
+              placeholder="candles, embers, doorway, etc."
               className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
             />
           </label>

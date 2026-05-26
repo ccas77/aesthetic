@@ -3,94 +3,116 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Book } from "@/lib/books-store";
+import type { RenderEntry } from "@/lib/renders-manifest";
 
-type Stage = "idle" | "rendering" | "done";
-
-interface RenderResult {
-  ok: true;
-  renderId: string;
+interface QueueJob {
+  id: string;
   bookId: string;
   quoteId: string;
   songId: string;
-  blobUrl: string;
-  durationSec: number;
-  shotCount: number;
-  stillIds: string[];
+  requestedAt: string;
+  attempts: number;
 }
 
 export default function Home() {
   const [books, setBooks] = useState<Book[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
-  const [activeQuoteId, setActiveQuoteId] = useState<string>("");
-  const [activeSongId, setActiveSongId] = useState<string>("");
-  const [stage, setStage] = useState<Stage>("idle");
-  const [error, setError] = useState<string>("");
-  const [result, setResult] = useState<RenderResult | null>(null);
+  const [queue, setQueue] = useState<QueueJob[]>([]);
+  const [renders, setRenders] = useState<RenderEntry[]>([]);
+  const [queueCount, setQueueCount] = useState<number>(1);
+  const [enqueuing, setEnqueuing] = useState(false);
+  const [enqueueMsg, setEnqueueMsg] = useState<string>("");
 
   const refreshBooks = useCallback(async () => {
     const r = await fetch("/api/books", { cache: "no-store" });
-    if (!r.ok) return;
+    if (!r.ok) return [];
     const data = (await r.json()) as { books?: Book[] };
     const list = data.books ?? [];
     setBooks(list);
     return list;
   }, []);
 
+  const refreshQueue = useCallback(async () => {
+    const r = await fetch("/api/admin/queue-renders", { cache: "no-store" });
+    if (!r.ok) return;
+    const data = (await r.json()) as { queue?: QueueJob[] };
+    setQueue(data.queue ?? []);
+  }, []);
+
+  const refreshRenders = useCallback(async (bookId: string | null) => {
+    if (!bookId) {
+      setRenders([]);
+      return;
+    }
+    const r = await fetch(`/api/books/${bookId}/renders`, { cache: "no-store" });
+    if (!r.ok) return;
+    const data = (await r.json()) as { renders?: RenderEntry[] };
+    setRenders(data.renders ?? []);
+  }, []);
+
   useEffect(() => {
     void (async () => {
       const list = await refreshBooks();
-      if (list && list.length > 0 && !activeBookId) {
-        setActiveBookId(list[0].id);
-      }
+      if (list.length > 0 && !activeBookId) setActiveBookId(list[0].id);
+      void refreshQueue();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    void refreshRenders(activeBookId);
+  }, [activeBookId, refreshRenders]);
 
   const activeBook = useMemo(
     () => books.find((b) => b.id === activeBookId) ?? null,
     [books, activeBookId],
   );
 
-  // Reset quote/song selection when switching books.
-  useEffect(() => {
-    setActiveQuoteId("");
-    setActiveSongId("");
-    setResult(null);
-    setStage("idle");
-    setError("");
-  }, [activeBookId]);
+  const activeQueue = useMemo(
+    () => queue.filter((j) => j.bookId === activeBookId),
+    [queue, activeBookId],
+  );
 
-  const canRender = !!activeBookId && !!activeQuoteId && !!activeSongId;
+  const quoteCount = (activeBook?.quotes ?? []).length;
+  const songCount = (activeBook?.songs ?? []).length;
+  const totalPairs = quoteCount * songCount;
+  const renderedPairKeys = useMemo(
+    () => new Set(renders.map((r) => `${r.quoteId}::${r.songId}`)),
+    [renders],
+  );
+  const unrenderedPairs = Math.max(0, totalPairs - renderedPairKeys.size);
 
-  const onRender = useCallback(async () => {
-    if (!canRender) return;
-    setStage("rendering");
-    setError("");
-    setResult(null);
+  const canEnqueue =
+    !!activeBookId && quoteCount > 0 && songCount > 0 && queueCount > 0;
+
+  const onEnqueue = useCallback(async () => {
+    if (!canEnqueue) return;
+    setEnqueuing(true);
+    setEnqueueMsg("");
     try {
-      const r = await fetch("/api/render", {
+      const r = await fetch("/api/admin/queue-renders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bookId: activeBookId,
-          quoteId: activeQuoteId,
-          songId: activeSongId,
-        }),
+        body: JSON.stringify({ bookId: activeBookId, count: queueCount }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
-        throw new Error(data.error || `render failed (${r.status})`);
+        setEnqueueMsg(data.error || `enqueue failed (${r.status})`);
+      } else {
+        setEnqueueMsg(`queued ${data.enqueued} render${data.enqueued === 1 ? "" : "s"}`);
+        await refreshQueue();
       }
-      setResult(data as RenderResult);
-      setStage("done");
     } catch (e) {
-      setError((e as Error).message);
-      setStage("idle");
+      setEnqueueMsg((e as Error).message);
+    } finally {
+      setEnqueuing(false);
     }
-  }, [canRender, activeBookId, activeQuoteId, activeSongId]);
+  }, [canEnqueue, activeBookId, queueCount, refreshQueue]);
+
+  const recentRenders = renders.slice(0, 5);
 
   return (
-    <main className="min-h-screen px-6 md:px-12 py-8 max-w-3xl mx-auto font-sans text-ink">
+    <main className="min-h-screen px-6 md:px-12 py-8 max-w-4xl mx-auto font-sans text-ink">
       <header className="flex items-baseline justify-between mb-8 pb-3 border-b border-line2">
         <h1 className="h-serif text-3xl md:text-4xl tracking-tight">
           aesthetic<span className="text-sepia">.</span>
@@ -103,161 +125,169 @@ export default function Home() {
         </Link>
       </header>
 
-      <section className="mb-8">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">
-          render
-        </h2>
-        <div className="bg-surface border border-line rounded-md px-5 py-5 space-y-4">
-          <label className="block">
-            <span className="text-xs text-muted block mb-1">Book</span>
-            {books.length === 0 ? (
-              <div className="flex items-center gap-3">
-                <span className="text-muted text-sm">no books yet</span>
-                <Link
-                  href="/books"
-                  className="text-sm text-ink underline underline-offset-4"
-                >
-                  add one
-                </Link>
-              </div>
-            ) : (
-              <select
-                value={activeBookId ?? ""}
-                onChange={(e) => setActiveBookId(e.target.value || null)}
-                className="w-full bg-bg border border-line2 rounded px-3 py-2 text-ink focus:border-ink focus:outline-none"
-              >
-                {books.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.title}
-                  </option>
-                ))}
-              </select>
-            )}
-          </label>
+      <div className="mb-8 flex flex-wrap items-center gap-3">
+        <span className="text-xs text-muted uppercase tracking-wider">book</span>
+        {books.length === 0 ? (
+          <Link
+            href="/books"
+            className="text-sm text-ink underline underline-offset-4"
+          >
+            add your first book
+          </Link>
+        ) : (
+          <select
+            value={activeBookId ?? ""}
+            onChange={(e) => setActiveBookId(e.target.value || null)}
+            className="bg-bg border border-line2 rounded px-3 py-1.5 text-ink focus:border-ink focus:outline-none"
+          >
+            {books.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.title}
+              </option>
+            ))}
+          </select>
+        )}
+        {activeBookId && (
+          <Link
+            href={`/books/${activeBookId}/renders`}
+            className="ml-auto text-sm text-muted hover:text-ink underline underline-offset-4"
+          >
+            render history →
+          </Link>
+        )}
+      </div>
 
-          {activeBook && (
-            <>
-              <label className="block">
-                <span className="text-xs text-muted block mb-1">Quote</span>
-                {(activeBook.quotes ?? []).length === 0 ? (
-                  <div className="flex items-center gap-3">
-                    <span className="text-muted text-sm">no quotes on this book</span>
-                    <Link
-                      href="/books"
-                      className="text-sm text-ink underline underline-offset-4"
-                    >
-                      add quotes
-                    </Link>
-                  </div>
-                ) : (
-                  <select
-                    value={activeQuoteId}
-                    onChange={(e) => setActiveQuoteId(e.target.value)}
-                    className="w-full bg-bg border border-line2 rounded px-3 py-2 text-ink focus:border-ink focus:outline-none"
-                  >
-                    <option value="">pick a quote…</option>
-                    {(activeBook.quotes ?? []).map((q) => (
-                      <option key={q.id} value={q.id}>
-                        {q.text.replace(/\s+/g, " ").slice(0, 80)}
-                        {q.text.length > 80 ? "…" : ""}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
+      {activeBook && (quoteCount === 0 || songCount === 0) && (
+        <section className="mb-8 bg-surface border border-line rounded-md px-4 py-4">
+          <h2 className="text-sm font-semibold text-ink">
+            {activeBook.title} isn&rsquo;t ready to render
+          </h2>
+          <p className="text-sm text-muted mt-1">
+            Add at least one quote and one song before queueing.
+          </p>
+          <Link
+            href="/books"
+            className="inline-block mt-3 px-4 py-2 bg-ink text-bg rounded hover:bg-sepia transition-colors"
+          >
+            edit book
+          </Link>
+        </section>
+      )}
 
-              <label className="block">
-                <span className="text-xs text-muted block mb-1">Song</span>
-                {(activeBook.songs ?? []).length === 0 ? (
-                  <div className="flex items-center gap-3">
-                    <span className="text-muted text-sm">no songs on this book</span>
-                    <Link
-                      href="/books"
-                      className="text-sm text-ink underline underline-offset-4"
-                    >
-                      add songs
-                    </Link>
-                  </div>
-                ) : (
-                  <select
-                    value={activeSongId}
-                    onChange={(e) => setActiveSongId(e.target.value)}
-                    className="w-full bg-bg border border-line2 rounded px-3 py-2 text-ink focus:border-ink focus:outline-none"
-                  >
-                    <option value="">pick a song…</option>
-                    {(activeBook.songs ?? []).map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.title}
-                        {s.bpm ? ` · ${s.bpm} bpm` : ""}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-            </>
-          )}
-
-          <div className="flex items-center gap-4 pt-2">
-            <button
-              onClick={onRender}
-              disabled={!canRender || stage === "rendering"}
-              className="px-5 py-2.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
-            >
-              {stage === "rendering" ? "rendering…" : "render video"}
-            </button>
-            {stage === "rendering" && (
-              <span className="text-sm text-muted">
-                30 to 90 seconds on the server
-              </span>
-            )}
-            {error && (
-              <span className="text-red-700 text-sm break-words">{error}</span>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {stage === "done" && result && (
+      {activeBook && quoteCount > 0 && songCount > 0 && (
         <section className="mb-8">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">
-            result
+            queue
           </h2>
           <div className="bg-surface border border-line rounded-md px-5 py-5 space-y-4">
-            <video
-              src={result.blobUrl}
-              controls
-              className="w-full max-w-xs mx-auto border border-line2 rounded"
-            />
-            <div className="text-xs text-muted space-y-1">
-              <div>render id: <span className="text-ink">{result.renderId}</span></div>
-              <div>{result.shotCount} shots · {result.durationSec}s</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <Stat label="queued for this book" value={activeQueue.length} />
+              <Stat label="total queue" value={queue.length} />
+              <Stat
+                label="unrendered pairs"
+                value={`${unrenderedPairs} / ${totalPairs}`}
+              />
             </div>
-            <div className="grid grid-cols-2 gap-3 max-w-xs mx-auto">
-              <a
-                href={result.blobUrl}
-                download={`${result.renderId}.mp4`}
-                className="py-2 bg-ink text-bg rounded text-center hover:bg-sepia transition-colors"
-              >
-                download
-              </a>
+            <p className="text-xs text-muted">
+              Pairs are picked round-robin through every (quote, song) combination. Cron drains
+              one job per tick on the 0/30 minute schedule.
+            </p>
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <label className="text-xs text-muted">
+                count
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={queueCount}
+                  onChange={(e) =>
+                    setQueueCount(Math.max(1, Math.min(100, Number(e.target.value) || 1)))
+                  }
+                  className="ml-2 w-20 bg-bg border border-line2 rounded px-2 py-1.5 text-ink focus:border-ink focus:outline-none"
+                />
+              </label>
               <button
-                onClick={() => {
-                  setResult(null);
-                  setStage("idle");
-                }}
-                className="py-2 border border-line2 rounded text-muted hover:border-ink hover:text-ink transition-colors"
+                onClick={onEnqueue}
+                disabled={!canEnqueue || enqueuing}
+                className="px-5 py-2 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
               >
-                another
+                {enqueuing ? "queueing…" : `queue ${queueCount} render${queueCount === 1 ? "" : "s"}`}
               </button>
+              {enqueueMsg && (
+                <span className="text-sm text-muted">{enqueueMsg}</span>
+              )}
             </div>
           </div>
         </section>
       )}
 
-      <footer className="mt-16 pt-4 border-t border-line text-xs text-dim flex justify-between">
-        <span>server-rendered</span>
+      {activeBook && (
+        <section className="mb-8">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">
+            recent renders
+          </h2>
+          {recentRenders.length === 0 ? (
+            <div className="text-sm text-muted bg-surface border border-line rounded-md px-4 py-5">
+              No renders for this book yet. Queue some above.
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {recentRenders.map((r) => (
+                <li
+                  key={r.renderId}
+                  className="bg-surface border border-line rounded-md px-4 py-3 flex items-center gap-4"
+                >
+                  <video
+                    src={r.blobUrl}
+                    className="w-20 h-32 object-cover rounded border border-line2"
+                  />
+                  <div className="flex-1 min-w-0 text-sm">
+                    <div className="text-xs text-muted">
+                      {new Date(r.createdAt).toLocaleString()} · {r.shotCount} shots · {r.durationSec}s
+                    </div>
+                    <div className="text-ink mt-1 line-clamp-2">
+                      {activeBook.quotes?.find((q) => q.id === r.quoteId)?.text ?? (
+                        <em className="text-dim">deleted quote</em>
+                      )}
+                    </div>
+                  </div>
+                  <a
+                    href={r.blobUrl}
+                    download={`${r.renderId}.mp4`}
+                    className="text-sm text-ink underline underline-offset-4 hover:text-sepia shrink-0"
+                  >
+                    download
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+          {renders.length > 5 && (
+            <div className="mt-3 text-right">
+              <Link
+                href={`/books/${activeBook.id}/renders`}
+                className="text-sm text-muted hover:text-ink underline underline-offset-4"
+              >
+                view all {renders.length} renders →
+              </Link>
+            </div>
+          )}
+        </section>
+      )}
+
+      <footer className="mt-12 pt-4 border-t border-line text-xs text-dim flex justify-between">
+        <span>server-rendered · cron drained · single-tenant</span>
         <span>aesthetic / 2026</span>
       </footer>
     </main>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div>
+      <div className="text-xs text-muted uppercase tracking-wider">{label}</div>
+      <div className="text-2xl text-ink h-serif">{value}</div>
+    </div>
   );
 }

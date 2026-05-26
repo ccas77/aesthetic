@@ -865,26 +865,32 @@ function ReferencesSection({
 }) {
   const [sex, setSex] = useState<CharacterSex>("female");
   const [label, setLabel] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const refs = book.references ?? [];
   const male = refs.filter((r) => r.sex === "male");
   const female = refs.filter((r) => r.sex === "female");
 
   const submit = useCallback(async () => {
-    if (!label.trim() || !file) return;
+    if (!label.trim() || files.length === 0) return;
     setBusy(true);
     setError("");
+    setStatus(`resizing ${files.length} image${files.length === 1 ? "" : "s"}…`);
     try {
-      // Downscale before upload so the request body stays under
-      // Vercel's ~4.5 MB function limit even for full-resolution
-      // character sheets straight off a camera or phone.
-      const resized = await resizeImageForUpload(file);
+      // Downscale every file first so even a batch of large character
+      // sheets fits inside Vercel's ~4.5 MB request body limit.
+      const resized = await Promise.all(
+        files.map((f) => resizeImageForUpload(f)),
+      );
+      setStatus(`uploading ${resized.length}…`);
       const form = new FormData();
       form.append("label", label.trim());
       form.append("sex", sex);
-      form.append("file", resized);
+      // FormData lets the same key repeat; the server reads
+      // form.getAll("file") to collect every one.
+      for (const r of resized) form.append("file", r);
       const r = await fetch(`/api/books/${book.id}/references`, {
         method: "POST",
         body: form,
@@ -894,15 +900,16 @@ function ReferencesSection({
         throw new Error(err.error || `upload failed (${r.status})`);
       }
       const data = (await r.json().catch(() => ({}))) as { book?: Book };
+      setStatus(`added ${resized.length} reference${resized.length === 1 ? "" : "s"}`);
       setLabel("");
-      setFile(null);
+      setFiles([]);
       await onChanged(data.book);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [label, sex, file, book.id, onChanged]);
+  }, [label, sex, files, book.id, onChanged]);
 
   return (
     <div>
@@ -938,32 +945,46 @@ function ReferencesSection({
           </label>
         </div>
         <div>
-          <span className="text-xs text-muted block mb-1">Image</span>
+          <span className="text-xs text-muted block mb-1">
+            Images (pick one or many)
+          </span>
           <label className="inline-flex items-center gap-3 cursor-pointer">
             <span className="px-3 py-2 border border-line2 rounded bg-bg text-ink hover:bg-ink hover:text-bg transition-colors">
-              {file ? "Replace image" : "Choose image"}
+              {files.length > 0 ? "Replace selection" : "Choose images"}
             </span>
             <span className="text-sm text-muted">
-              {file
-                ? `${file.name} · ${(file.size / 1024).toFixed(0)} kb`
-                : "no file chosen"}
+              {files.length === 0
+                ? "no files chosen"
+                : files.length === 1
+                ? `${files[0].name} · ${(files[0].size / 1024).toFixed(0)} kb`
+                : `${files.length} files · ${(files.reduce((n, f) => n + f.size, 0) / 1024 / 1024).toFixed(2)} MB`}
             </span>
             <input
               type="file"
               accept="image/*"
+              multiple
               className="sr-only"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              onChange={(e) =>
+                setFiles(Array.from(e.target.files ?? []))
+              }
             />
           </label>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={submit}
-            disabled={!label.trim() || !file || busy}
+            disabled={!label.trim() || files.length === 0 || busy}
             className="px-5 py-2 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
           >
-            {busy ? "uploading…" : "Add reference"}
+            {busy
+              ? "uploading…"
+              : files.length > 1
+              ? `Add ${files.length} references`
+              : "Add reference"}
           </button>
+          {status && !error && (
+            <span className="text-sm text-muted">{status}</span>
+          )}
           {error && <span className="text-sm text-red-700">{error}</span>}
         </div>
       </div>

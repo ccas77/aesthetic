@@ -25,7 +25,8 @@ async function findExistingUrl(): Promise<string | null> {
 export async function readTokenRow(): Promise<TokenRow | null> {
   const url = await findExistingUrl();
   if (!url) return null;
-  const res = await fetch(url, { cache: "no-store" });
+  // Bust the Blob CDN cache so refreshed tokens are immediately visible.
+  const res = await fetch(`${url}?_=${Date.now()}`, { cache: "no-store" });
   if (!res.ok) return null;
   try {
     return (await res.json()) as TokenRow;

@@ -50,7 +50,8 @@ async function seedFromLegacyLibrary(): Promise<FillerStill[]> {
 export async function readFiller(): Promise<FillerStill[]> {
   const url = await findIndexUrl();
   if (url) {
-    const res = await fetch(url, { cache: "no-store" });
+    // Bust Blob CDN cache; see books-store readBooks for the same fix.
+    const res = await fetch(`${url}?_=${Date.now()}`, { cache: "no-store" });
     if (res.ok) {
       try {
         const data = (await res.json()) as FillerIndex;

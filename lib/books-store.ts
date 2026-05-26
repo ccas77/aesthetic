@@ -37,7 +37,9 @@ async function findIndexUrl(): Promise<string | null> {
 export async function readBooks(): Promise<Book[]> {
   const url = await findIndexUrl();
   if (!url) return [];
-  const res = await fetch(url, { cache: "no-store" });
+  // Bust any Blob CDN cache: each read uses a unique URL so we never
+  // get stale data inside a read-modify-write cycle.
+  const res = await fetch(`${url}?_=${Date.now()}`, { cache: "no-store" });
   if (!res.ok) return [];
   try {
     const data = (await res.json()) as BooksIndex;

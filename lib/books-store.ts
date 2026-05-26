@@ -127,6 +127,25 @@ export async function upsertBook(updated: Book): Promise<void> {
   await writeBooks(books);
 }
 
+// Field-level mutator. Reads the most recent books, applies `mutate`
+// to the target book against that freshly-read state, then writes.
+// Use this in routes that change only one or two fields (style brief,
+// adding a caption, etc.) so a slightly stale read at the start of
+// the request doesn't clobber fields the route never intended to
+// touch. Returns the updated book, or undefined if the id is missing.
+export async function mutateBook(
+  bookId: string,
+  mutate: (b: Book) => Book,
+): Promise<Book | undefined> {
+  const books = await readBooks();
+  const idx = books.findIndex((b) => b.id === bookId);
+  if (idx === -1) return undefined;
+  const next = mutate(books[idx]);
+  books[idx] = next;
+  await writeBooks(books);
+  return next;
+}
+
 export async function removeBook(id: string): Promise<boolean> {
   const books = await readBooks();
   const next = books.filter((b) => b.id !== id);

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readBooks, upsertBook } from "@/lib/books-store";
+import { mutateBook } from "@/lib/books-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,21 +22,30 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-  const books = await readBooks();
-  const book = books.find((b) => b.id === id);
-  if (!book) {
-    return NextResponse.json({ error: "book not found" }, { status: 404 });
-  }
-  const c = (book.captions ?? []).find((x) => x.id === cid);
-  if (!c) {
-    return NextResponse.json({ error: "caption not found" }, { status: 404 });
-  }
   if (typeof body.text !== "string" || !body.text.trim()) {
     return NextResponse.json({ error: "text required" }, { status: 400 });
   }
-  c.text = body.text.trim();
-  await upsertBook(book);
-  return NextResponse.json({ book, caption: c });
+  const text = body.text.trim();
+
+  let notFound = false;
+  const book = await mutateBook(id, (b) => {
+    const captions = b.captions ?? [];
+    const idx = captions.findIndex((c) => c.id === cid);
+    if (idx === -1) {
+      notFound = true;
+      return b;
+    }
+    const next = captions.slice();
+    next[idx] = { ...next[idx], text };
+    return { ...b, captions: next };
+  });
+  if (!book) {
+    return NextResponse.json({ error: "book not found" }, { status: 404 });
+  }
+  if (notFound) {
+    return NextResponse.json({ error: "caption not found" }, { status: 404 });
+  }
+  return NextResponse.json({ book });
 }
 
 export async function DELETE(_req: Request, { params }: RouteParams) {
@@ -47,16 +56,20 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     );
   }
   const { id, cid } = await params;
-  const books = await readBooks();
-  const book = books.find((b) => b.id === id);
+  let notFound = false;
+  const book = await mutateBook(id, (b) => {
+    const captions = b.captions ?? [];
+    if (!captions.some((c) => c.id === cid)) {
+      notFound = true;
+      return b;
+    }
+    return { ...b, captions: captions.filter((c) => c.id !== cid) };
+  });
   if (!book) {
     return NextResponse.json({ error: "book not found" }, { status: 404 });
   }
-  const before = (book.captions ?? []).length;
-  book.captions = (book.captions ?? []).filter((x) => x.id !== cid);
-  if ((book.captions ?? []).length === before) {
+  if (notFound) {
     return NextResponse.json({ error: "caption not found" }, { status: 404 });
   }
-  await upsertBook(book);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, book });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { list, del } from "@vercel/blob";
-import { readBooks, upsertBook } from "@/lib/books-store";
+import { mutateBook } from "@/lib/books-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,22 +23,31 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-  const books = await readBooks();
-  const book = books.find((b) => b.id === id);
+
+  let notFound = false;
+  const book = await mutateBook(id, (b) => {
+    const idx = b.categories.findIndex((c) => c.id === catId);
+    if (idx === -1) {
+      notFound = true;
+      return b;
+    }
+    const cat = { ...b.categories[idx] };
+    if (typeof body.label === "string" && body.label.trim()) {
+      cat.label = body.label.trim();
+    }
+    if (typeof body.prompt === "string" && body.prompt.trim()) {
+      cat.prompt = body.prompt.trim();
+    }
+    const categories = b.categories.slice();
+    categories[idx] = cat;
+    return { ...b, categories };
+  });
   if (!book) {
     return NextResponse.json({ error: "book not found" }, { status: 404 });
   }
-  const cat = book.categories.find((c) => c.id === catId);
-  if (!cat) {
+  if (notFound) {
     return NextResponse.json({ error: "category not found" }, { status: 404 });
   }
-  if (typeof body.label === "string" && body.label.trim()) {
-    cat.label = body.label.trim();
-  }
-  if (typeof body.prompt === "string" && body.prompt.trim()) {
-    cat.prompt = body.prompt.trim();
-  }
-  await upsertBook(book);
   return NextResponse.json({ book });
 }
 
@@ -50,17 +59,20 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     );
   }
   const { id, catId } = await params;
-  const books = await readBooks();
-  const book = books.find((b) => b.id === id);
+  let notFound = false;
+  const book = await mutateBook(id, (b) => {
+    if (!b.categories.some((c) => c.id === catId)) {
+      notFound = true;
+      return b;
+    }
+    return { ...b, categories: b.categories.filter((c) => c.id !== catId) };
+  });
   if (!book) {
     return NextResponse.json({ error: "book not found" }, { status: 404 });
   }
-  const before = book.categories.length;
-  book.categories = book.categories.filter((c) => c.id !== catId);
-  if (book.categories.length === before) {
+  if (notFound) {
     return NextResponse.json({ error: "category not found" }, { status: 404 });
   }
-  await upsertBook(book);
   try {
     const { blobs } = await list({
       prefix: `books/${id}/library/${catId}.`,
@@ -72,5 +84,5 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
   } catch (e) {
     console.error("category image cleanup failed", e);
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, book });
 }

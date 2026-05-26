@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { randomUUID } from "node:crypto";
-import { readBooks, upsertBook, type Song } from "@/lib/books-store";
+import { mutateBook, type Song } from "@/lib/books-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,12 +42,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "file required" }, { status: 400 });
   }
 
-  const books = await readBooks();
-  const book = books.find((b) => b.id === id);
-  if (!book) {
-    return NextResponse.json({ error: "book not found" }, { status: 404 });
-  }
-
+  // Upload the audio blob first; the song record is then appended to
+  // the freshly-read book.
   const songId = randomUUID();
   const ext = extFromMime(file.type, file.name);
   const buf = Buffer.from(await file.arrayBuffer());
@@ -77,8 +73,13 @@ export async function POST(req: Request, { params }: RouteParams) {
     durationSec,
     createdAt: new Date().toISOString(),
   };
-  book.songs = [...(book.songs ?? []), song];
-  await upsertBook(book);
+  const book = await mutateBook(id, (b) => ({
+    ...b,
+    songs: [...(b.songs ?? []), song],
+  }));
+  if (!book) {
+    return NextResponse.json({ error: "book not found" }, { status: 404 });
+  }
   return NextResponse.json({ book, song });
 }
 

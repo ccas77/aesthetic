@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { del, list } from "@vercel/blob";
-import { readBooks, upsertBook } from "@/lib/books-store";
+import { mutateBook } from "@/lib/books-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,19 +17,21 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     );
   }
   const { id, sid } = await params;
-  const books = await readBooks();
-  const book = books.find((b) => b.id === id);
+  let notFound = false;
+  const book = await mutateBook(id, (b) => {
+    const songs = b.songs ?? [];
+    if (!songs.some((s) => s.id === sid)) {
+      notFound = true;
+      return b;
+    }
+    return { ...b, songs: songs.filter((s) => s.id !== sid) };
+  });
   if (!book) {
     return NextResponse.json({ error: "book not found" }, { status: 404 });
   }
-  const before = (book.songs ?? []).length;
-  book.songs = (book.songs ?? []).filter((x) => x.id !== sid);
-  if ((book.songs ?? []).length === before) {
+  if (notFound) {
     return NextResponse.json({ error: "song not found" }, { status: 404 });
   }
-  await upsertBook(book);
-
-  // Best-effort: delete the audio blob.
   try {
     const { blobs } = await list({
       prefix: `books/${id}/songs/${sid}.`,
@@ -39,5 +41,5 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
   } catch (e) {
     console.error("song blob cleanup failed", e);
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, book });
 }

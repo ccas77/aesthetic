@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { readBooks, upsertBook, type Caption } from "@/lib/books-store";
+import { mutateBook, type Caption } from "@/lib/books-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,8 +11,8 @@ interface RouteParams {
 
 // POST /api/books/[id]/captions
 // Body: { text } | { texts: [...] } | { captions: [{ text }, ...] }
-// Also accepts the legacy `quotes` array key. Bulk paste splits a
-// textarea by blank lines client-side and posts as `texts`.
+// Append-only against the freshly-read book so a slow-to-propagate
+// cache read doesn't drop concurrent caption adds.
 export async function POST(req: Request, { params }: RouteParams) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json(
@@ -31,12 +31,6 @@ export async function POST(req: Request, { params }: RouteParams) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
-  }
-
-  const books = await readBooks();
-  const book = books.find((b) => b.id === id);
-  if (!book) {
-    return NextResponse.json({ error: "book not found" }, { status: 404 });
   }
 
   const incomingTexts: string[] = [];
@@ -69,7 +63,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     text,
     createdAt: new Date().toISOString(),
   }));
-  book.captions = [...(book.captions ?? []), ...added];
-  await upsertBook(book);
+  const book = await mutateBook(id, (b) => ({
+    ...b,
+    captions: [...(b.captions ?? []), ...added],
+  }));
+  if (!book) {
+    return NextResponse.json({ error: "book not found" }, { status: 404 });
+  }
   return NextResponse.json({ book, added });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { put, list, del } from "@vercel/blob";
-import { readBooks, upsertBook, removeBook } from "@/lib/books-store";
+import { mutateBook, removeBook, type Book } from "@/lib/books-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,18 +17,21 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     );
   }
   const { id } = await params;
-  const books = await readBooks();
-  const book = books.find((b) => b.id === id);
-  if (!book) {
-    return NextResponse.json({ error: "book not found" }, { status: 404 });
-  }
 
+  // Build a list of field-level patches off the request, then apply
+  // them against a freshly-read book inside mutateBook. This way a
+  // request that only changes one field can't accidentally clobber
+  // unrelated fields written between our read and our write.
+  const patches: Array<(b: Book) => Book> = [];
   const contentType = req.headers.get("content-type") || "";
   if (contentType.startsWith("multipart/")) {
     const form = await req.formData();
     const title = form.get("title");
+    if (typeof title === "string" && title.trim()) {
+      const next = title.trim();
+      patches.push((b) => ({ ...b, title: next }));
+    }
     const cover = form.get("cover");
-    if (typeof title === "string" && title.trim()) book.title = title.trim();
     if (cover instanceof File && cover.size > 0) {
       const ext = extFromMime(cover.type);
       const buf = Buffer.from(await cover.arrayBuffer());
@@ -38,7 +41,8 @@ export async function PATCH(req: Request, { params }: RouteParams) {
         addRandomSuffix: false,
         allowOverwrite: true,
       });
-      book.coverUrl = blob.url;
+      const url = blob.url;
+      patches.push((b) => ({ ...b, coverUrl: url }));
     }
   } else {
     let body: {
@@ -53,23 +57,33 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
     }
     if (typeof body.title === "string" && body.title.trim()) {
-      book.title = body.title.trim();
+      const t = body.title.trim();
+      patches.push((b) => ({ ...b, title: t }));
     }
     if (typeof body.stylePrompt === "string") {
-      book.stylePrompt = body.stylePrompt.trim() || undefined;
+      const v = body.stylePrompt.trim() || undefined;
+      patches.push((b) => ({ ...b, stylePrompt: v }));
     }
     if (Array.isArray(body.postAccountIds)) {
       const ids = body.postAccountIds
         .map((n) => Number(n))
         .filter((n) => Number.isFinite(n) && n > 0);
-      book.postAccountIds = ids;
+      patches.push((b) => ({ ...b, postAccountIds: ids }));
     }
     if (typeof body.captionSuffix === "string") {
-      book.captionSuffix = body.captionSuffix.trim() || undefined;
+      const v = body.captionSuffix.trim() || undefined;
+      patches.push((b) => ({ ...b, captionSuffix: v }));
     }
   }
 
-  await upsertBook(book);
+  const book = await mutateBook(id, (b) => {
+    let next = b;
+    for (const p of patches) next = p(next);
+    return next;
+  });
+  if (!book) {
+    return NextResponse.json({ error: "book not found" }, { status: 404 });
+  }
   return NextResponse.json({ book });
 }
 

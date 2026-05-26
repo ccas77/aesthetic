@@ -9,6 +9,12 @@ import type {
   Song,
 } from "@/lib/books-store";
 
+// Update callback. Pass an updated Book to patch state in place (the
+// API responses return the post-write book, which sidesteps the Blob
+// CDN read-after-write window). Call with no arg to trigger a full
+// refetch from server, used for changes that don't return a book.
+type OnChanged = (updatedBook?: Book) => Promise<void> | void;
+
 export default function BooksPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [stillsByBook, setStillsByBook] = useState<
@@ -42,6 +48,44 @@ export default function BooksPage() {
       }),
     );
     setStillsByBook(Object.fromEntries(entries));
+  }, []);
+
+  // Vercel Blob has a small read-after-write consistency window. Refetching
+  // immediately after a save can return the pre-save state and overwrite
+  // the just-written change on the next save. To avoid that, save handlers
+  // pass the API's returned book here and we patch state in place; we only
+  // fall back to a full refetch when no updated book is available.
+  const onChanged = useCallback<OnChanged>(
+    async (updatedBook) => {
+      if (updatedBook) {
+        setBooks((prev) =>
+          prev.map((b) => (b.id === updatedBook.id ? updatedBook : b)),
+        );
+        return;
+      }
+      await refreshBooks();
+    },
+    [refreshBooks],
+  );
+
+  // For category-still changes, we also need to refresh the stills map
+  // for the affected book. The book record itself doesn't change.
+  const refreshStillsForBook = useCallback(async (bookId: string) => {
+    try {
+      const lr = await fetch(
+        `/api/library?bookId=${encodeURIComponent(bookId)}`,
+        { cache: "no-store" },
+      );
+      if (!lr.ok) return;
+      const d = (await lr.json()) as {
+        stills?: Array<{ id: string; url: string }>;
+      };
+      const byId: Record<string, string> = {};
+      for (const s of d.stills ?? []) byId[s.id] = s.url;
+      setStillsByBook((prev) => ({ ...prev, [bookId]: byId }));
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   useEffect(() => {
@@ -97,7 +141,8 @@ export default function BooksPage() {
                   onToggle={() =>
                     setExpandedId((prev) => (prev === b.id ? null : b.id))
                   }
-                  onChanged={refreshBooks}
+                  onChanged={onChanged}
+                  onStillsChanged={() => refreshStillsForBook(b.id)}
                 />
               </li>
             ))}
@@ -243,12 +288,14 @@ function BookCard({
   expanded,
   onToggle,
   onChanged,
+  onStillsChanged,
 }: {
   book: Book;
   stillsByCategory: Record<string, string>;
   expanded: boolean;
   onToggle: () => void;
-  onChanged: () => Promise<void> | void;
+  onChanged: OnChanged;
+  onStillsChanged: () => Promise<void> | void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState(book.title);
@@ -264,7 +311,10 @@ function BookCard({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: titleDraft.trim() }),
     });
-    if (r.ok) await onChanged();
+    if (r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
+      await onChanged(data.book);
+    }
     setRenaming(false);
   }, [titleDraft, book.title, book.id, onChanged]);
 
@@ -347,7 +397,7 @@ function BookCard({
           <LibrarySection
             book={book}
             stillsByCategory={stillsByCategory}
-            onChanged={onChanged}
+            onStillsChanged={onStillsChanged}
           />
         </div>
       )}
@@ -360,7 +410,7 @@ function StyleEditor({
   onChanged,
 }: {
   book: Book;
-  onChanged: () => Promise<void> | void;
+  onChanged: OnChanged;
 }) {
   const [draft, setDraft] = useState(book.stylePrompt ?? "");
   const [busy, setBusy] = useState(false);
@@ -380,8 +430,9 @@ function StyleEditor({
         const err = await r.json().catch(() => ({}));
         throw new Error(err.error || `save failed (${r.status})`);
       }
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
       setStatus("saved");
-      await onChanged();
+      await onChanged(data.book);
     } catch (e) {
       setStatus((e as Error).message);
     } finally {
@@ -423,7 +474,7 @@ function CaptionsSection({
   onChanged,
 }: {
   book: Book;
-  onChanged: () => Promise<void> | void;
+  onChanged: OnChanged;
 }) {
   const [bulk, setBulk] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -450,8 +501,9 @@ function CaptionsSection({
         const err = await r.json().catch(() => ({}));
         throw new Error(err.error || `add failed (${r.status})`);
       }
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
       setBulk("");
-      await onChanged();
+      await onChanged(data.book);
     } catch (e) {
       setBulkError((e as Error).message);
     } finally {
@@ -469,8 +521,9 @@ function CaptionsSection({
         body: JSON.stringify({ text: single.trim() }),
       });
       if (r.ok) {
+        const data = (await r.json().catch(() => ({}))) as { book?: Book };
         setSingle("");
-        await onChanged();
+        await onChanged(data.book);
       }
     } finally {
       setSingleBusy(false);
@@ -546,7 +599,7 @@ function CaptionRow({
 }: {
   bookId: string;
   caption: Caption;
-  onChanged: () => Promise<void> | void;
+  onChanged: OnChanged;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(caption.text);
@@ -565,8 +618,9 @@ function CaptionRow({
         body: JSON.stringify({ text: draft.trim() }),
       });
       if (r.ok) {
+        const data = (await r.json().catch(() => ({}))) as { book?: Book };
         setEditing(false);
-        await onChanged();
+        await onChanged(data.book);
       }
     } finally {
       setBusy(false);
@@ -579,7 +633,10 @@ function CaptionRow({
     const r = await fetch(`/api/books/${bookId}/captions/${caption.id}`, {
       method: "DELETE",
     });
-    if (r.ok) await onChanged();
+    if (r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
+      await onChanged(data.book);
+    }
     setBusy(false);
   }, [bookId, caption.id, onChanged]);
 
@@ -644,7 +701,7 @@ function MusicSection({
   onChanged,
 }: {
   book: Book;
-  onChanged: () => Promise<void> | void;
+  onChanged: OnChanged;
 }) {
   const [title, setTitle] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -670,10 +727,11 @@ function MusicSection({
         const err = await r.json().catch(() => ({}));
         throw new Error(err.error || `upload failed (${r.status})`);
       }
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
       setTitle("");
       setFile(null);
       setBpm("");
-      await onChanged();
+      await onChanged(data.book);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -758,7 +816,7 @@ function SongRow({
 }: {
   bookId: string;
   song: Song;
-  onChanged: () => Promise<void> | void;
+  onChanged: OnChanged;
 }) {
   const [busy, setBusy] = useState(false);
   const remove = useCallback(async () => {
@@ -767,7 +825,10 @@ function SongRow({
     const r = await fetch(`/api/books/${bookId}/songs/${song.id}`, {
       method: "DELETE",
     });
-    if (r.ok) await onChanged();
+    if (r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
+      await onChanged(data.book);
+    }
     setBusy(false);
   }, [bookId, song.id, song.title, onChanged]);
   return (
@@ -795,7 +856,7 @@ function ImagePromptsSection({
   onChanged,
 }: {
   book: Book;
-  onChanged: () => Promise<void> | void;
+  onChanged: OnChanged;
 }) {
   const [bulk, setBulk] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -837,8 +898,9 @@ function ImagePromptsSection({
         const err = await r.json().catch(() => ({}));
         throw new Error(err.error || `add failed (${r.status})`);
       }
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
       setBulk("");
-      await onChanged();
+      await onChanged(data.book);
     } catch (e) {
       setBulkError((e as Error).message);
     } finally {
@@ -863,9 +925,10 @@ function ImagePromptsSection({
         const err = await r.json().catch(() => ({}));
         throw new Error(err.error || `add failed (${r.status})`);
       }
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
       setRowLabel("");
       setRowPrompt("");
-      await onChanged();
+      await onChanged(data.book);
     } catch (e) {
       setRowError((e as Error).message);
     } finally {
@@ -949,7 +1012,7 @@ function PromptRow({
 }: {
   bookId: string;
   category: BookCategory;
-  onChanged: () => Promise<void> | void;
+  onChanged: OnChanged;
 }) {
   const [editing, setEditing] = useState(false);
   const [labelDraft, setLabelDraft] = useState(category.label);
@@ -971,8 +1034,9 @@ function PromptRow({
         },
       );
       if (r.ok) {
+        const data = (await r.json().catch(() => ({}))) as { book?: Book };
         setEditing(false);
-        await onChanged();
+        await onChanged(data.book);
       }
     } finally {
       setBusy(false);
@@ -986,7 +1050,10 @@ function PromptRow({
       `/api/books/${bookId}/categories/${category.id}`,
       { method: "DELETE" },
     );
-    if (r.ok) await onChanged();
+    if (r.ok) {
+      const data = (await r.json().catch(() => ({}))) as { book?: Book };
+      await onChanged(data.book);
+    }
     setBusy(false);
   }, [bookId, category.id, category.label, onChanged]);
 
@@ -1059,11 +1126,11 @@ function PromptRow({
 function LibrarySection({
   book,
   stillsByCategory,
-  onChanged,
+  onStillsChanged,
 }: {
   book: Book;
   stillsByCategory: Record<string, string>;
-  onChanged: () => Promise<void> | void;
+  onStillsChanged: () => Promise<void> | void;
 }) {
   return (
     <div>
@@ -1082,7 +1149,7 @@ function LibrarySection({
                 bookId={book.id}
                 category={c}
                 stillUrl={stillsByCategory[c.id]}
-                onChanged={onChanged}
+                onStillsChanged={onStillsChanged}
               />
             </li>
           ))}
@@ -1096,12 +1163,12 @@ function LibrarySlot({
   bookId,
   category,
   stillUrl,
-  onChanged,
+  onStillsChanged,
 }: {
   bookId: string;
   category: BookCategory;
   stillUrl?: string;
-  onChanged: () => Promise<void> | void;
+  onStillsChanged: () => Promise<void> | void;
 }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -1120,13 +1187,13 @@ function LibrarySlot({
         throw new Error(err.error || `generate failed (${r.status})`);
       }
       setStatus("");
-      await onChanged();
+      await onStillsChanged();
     } catch (e) {
       setStatus((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [bookId, category.id, onChanged]);
+  }, [bookId, category.id, onStillsChanged]);
 
   const upload = useCallback(
     async (file: File) => {
@@ -1146,14 +1213,14 @@ function LibrarySlot({
           throw new Error(err.error || `upload failed (${r.status})`);
         }
         setStatus("");
-        await onChanged();
+        await onStillsChanged();
       } catch (e) {
         setStatus((e as Error).message);
       } finally {
         setBusy(false);
       }
     },
-    [bookId, category.id, onChanged],
+    [bookId, category.id, onStillsChanged],
   );
 
   const removeStill = useCallback(async () => {
@@ -1172,13 +1239,13 @@ function LibrarySlot({
         throw new Error(err.error || `remove failed (${r.status})`);
       }
       setStatus("");
-      await onChanged();
+      await onStillsChanged();
     } catch (e) {
       setStatus((e as Error).message);
     } finally {
       setBusy(false);
     }
-  }, [stillUrl, bookId, category.id, category.label, onChanged]);
+  }, [stillUrl, bookId, category.id, category.label, onStillsChanged]);
 
   return (
     <div className="bg-bg border border-line rounded-md overflow-hidden">

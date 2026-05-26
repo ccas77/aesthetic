@@ -7,6 +7,7 @@ import type {
   BookCategory,
   BookReference,
   Caption,
+  CategoryAppearsIn,
   CharacterSex,
   Song,
 } from "@/lib/books-store";
@@ -1091,10 +1092,12 @@ function ImagePromptsSection({
   onChanged: OnChanged;
 }) {
   const [bulk, setBulk] = useState("");
+  const [bulkAppearsIn, setBulkAppearsIn] = useState<CategoryAppearsIn>("both");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState("");
   const [rowLabel, setRowLabel] = useState("");
   const [rowPrompt, setRowPrompt] = useState("");
+  const [rowAppearsIn, setRowAppearsIn] = useState<CategoryAppearsIn>("both");
   const [rowBusy, setRowBusy] = useState(false);
   const [rowError, setRowError] = useState("");
 
@@ -1104,16 +1107,28 @@ function ImagePromptsSection({
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean);
-    const parsed: Array<{ id?: string; label: string; prompt: string }> = [];
+    const parsed: Array<{
+      id?: string;
+      label: string;
+      prompt: string;
+      appearsIn: CategoryAppearsIn;
+    }> = [];
     for (const line of rows) {
       const parts = line.split("|").map((s) => s.trim()).filter(Boolean);
-      if (parts.length === 2) parsed.push({ label: parts[0], prompt: parts[1] });
-      else if (parts.length >= 3)
+      if (parts.length === 2) {
+        parsed.push({
+          label: parts[0],
+          prompt: parts[1],
+          appearsIn: bulkAppearsIn,
+        });
+      } else if (parts.length >= 3) {
         parsed.push({
           id: parts[0],
           label: parts[1],
           prompt: parts.slice(2).join(" | "),
+          appearsIn: bulkAppearsIn,
         });
+      }
     }
     if (parsed.length === 0) {
       setBulkError("Use `label | prompt` per line, or `id | label | prompt`.");
@@ -1138,7 +1153,7 @@ function ImagePromptsSection({
     } finally {
       setBulkBusy(false);
     }
-  }, [bulk, book.id, onChanged]);
+  }, [bulk, bulkAppearsIn, book.id, onChanged]);
 
   const submitRow = useCallback(async () => {
     if (!rowLabel.trim() || !rowPrompt.trim()) return;
@@ -1151,6 +1166,7 @@ function ImagePromptsSection({
         body: JSON.stringify({
           label: rowLabel.trim(),
           prompt: rowPrompt.trim(),
+          appearsIn: rowAppearsIn,
         }),
       });
       if (!r.ok) {
@@ -1166,7 +1182,7 @@ function ImagePromptsSection({
     } finally {
       setRowBusy(false);
     }
-  }, [rowLabel, rowPrompt, book.id, onChanged]);
+  }, [rowLabel, rowPrompt, rowAppearsIn, book.id, onChanged]);
 
   return (
     <div>
@@ -1187,6 +1203,10 @@ function ImagePromptsSection({
             <span className="text-xs text-dim block mt-1">
               Format: <span className="text-ink">label | prompt</span> per line.
             </span>
+          </label>
+          <label className="block mt-2">
+            <span className="text-xs text-muted block mb-1">Appears in (applies to all rows)</span>
+            <AppearsInSelect value={bulkAppearsIn} onChange={setBulkAppearsIn} />
           </label>
           {bulkError && <div className="text-red-700 text-sm mt-2">{bulkError}</div>}
           <button
@@ -1213,6 +1233,10 @@ function ImagePromptsSection({
               rows={3}
               className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
             />
+          </label>
+          <label className="block mt-2">
+            <span className="text-xs text-muted block mb-1">Appears in</span>
+            <AppearsInSelect value={rowAppearsIn} onChange={setRowAppearsIn} />
           </label>
           {rowError && <div className="text-red-700 text-sm mt-2">{rowError}</div>}
           <button
@@ -1249,7 +1273,11 @@ function PromptRow({
   const [editing, setEditing] = useState(false);
   const [labelDraft, setLabelDraft] = useState(category.label);
   const [promptDraft, setPromptDraft] = useState(category.prompt);
+  const [appearsInDraft, setAppearsInDraft] = useState<CategoryAppearsIn>(
+    category.appearsIn ?? "both",
+  );
   const [busy, setBusy] = useState(false);
+  const appearsIn = category.appearsIn ?? "both";
 
   const save = useCallback(async () => {
     setBusy(true);
@@ -1262,6 +1290,7 @@ function PromptRow({
           body: JSON.stringify({
             label: labelDraft.trim(),
             prompt: promptDraft.trim(),
+            appearsIn: appearsInDraft,
           }),
         },
       );
@@ -1273,7 +1302,7 @@ function PromptRow({
     } finally {
       setBusy(false);
     }
-  }, [bookId, category.id, labelDraft, promptDraft, onChanged]);
+  }, [bookId, category.id, labelDraft, promptDraft, appearsInDraft, onChanged]);
 
   const remove = useCallback(async () => {
     if (!confirm(`Remove "${category.label}" and its still?`)) return;
@@ -1304,6 +1333,14 @@ function PromptRow({
             rows={2}
             className="w-full bg-bg border border-line2 rounded px-2 py-1 text-sm focus:border-ink focus:outline-none resize-y"
           />
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted">Appears in</span>
+            <AppearsInSelect
+              value={appearsInDraft}
+              onChange={setAppearsInDraft}
+              compact
+            />
+          </div>
           <div className="flex gap-3 text-sm">
             <button
               onClick={save}
@@ -1316,6 +1353,7 @@ function PromptRow({
               onClick={() => {
                 setLabelDraft(category.label);
                 setPromptDraft(category.prompt);
+                setAppearsInDraft(category.appearsIn ?? "both");
                 setEditing(false);
               }}
               className="text-muted hover:text-ink"
@@ -1327,8 +1365,9 @@ function PromptRow({
       ) : (
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-ink">{category.label}</span>
+              <AppearsInBadge value={appearsIn} />
               <span className="text-xs text-dim">id: {category.id}</span>
             </div>
             <div className="text-sm text-muted mt-1 leading-relaxed whitespace-pre-wrap">
@@ -1352,6 +1391,47 @@ function PromptRow({
         </div>
       )}
     </div>
+  );
+}
+
+function AppearsInSelect({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value: CategoryAppearsIn;
+  onChange: (v: CategoryAppearsIn) => void;
+  compact?: boolean;
+}) {
+  const klass = compact
+    ? "bg-bg border border-line2 rounded px-2 py-0.5 text-sm focus:border-ink focus:outline-none"
+    : "w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none";
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as CategoryAppearsIn)}
+      className={klass}
+    >
+      <option value="both">both (couple) — uses every reference</option>
+      <option value="female">female only — uses female references</option>
+      <option value="male">male only — uses male references</option>
+    </select>
+  );
+}
+
+function AppearsInBadge({ value }: { value: CategoryAppearsIn }) {
+  const labels: Record<CategoryAppearsIn, { text: string; bg: string }> = {
+    both: { text: "both", bg: "bg-line2 text-ink" },
+    female: { text: "female", bg: "bg-rose-100 text-rose-900" },
+    male: { text: "male", bg: "bg-sky-100 text-sky-900" },
+  };
+  const { text, bg } = labels[value];
+  return (
+    <span
+      className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded ${bg}`}
+    >
+      {text}
+    </span>
   );
 }
 

@@ -44,7 +44,12 @@ export async function POST(req: Request, { params }: RouteParams) {
         rejected.push({ index: idx, reason: "not an object" });
         return;
       }
-      const r = raw as { id?: unknown; label?: unknown; prompt?: unknown };
+      const r = raw as {
+        id?: unknown;
+        label?: unknown;
+        prompt?: unknown;
+        appearsIn?: unknown;
+      };
       const label = typeof r.label === "string" ? r.label.trim() : "";
       const prompt = typeof r.prompt === "string" ? r.prompt.trim() : "";
       if (!label || !prompt) {
@@ -57,7 +62,11 @@ export async function POST(req: Request, { params }: RouteParams) {
           : slugify(label);
       const catId = uniqueId(requestedId, taken);
       taken.add(catId);
-      localAdded.push({ id: catId, label, prompt });
+      const appearsIn =
+        r.appearsIn === "female" || r.appearsIn === "male" || r.appearsIn === "both"
+          ? r.appearsIn
+          : "both";
+      localAdded.push({ id: catId, label, prompt, appearsIn });
     });
     added = localAdded;
     if (localAdded.length === 0) return b;

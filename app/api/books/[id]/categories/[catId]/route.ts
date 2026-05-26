@@ -17,7 +17,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     );
   }
   const { id, catId } = await params;
-  let body: { label?: unknown; prompt?: unknown };
+  let body: { label?: unknown; prompt?: unknown; appearsIn?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -37,6 +37,13 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     if (typeof body.prompt === "string" && body.prompt.trim()) {
       cat.prompt = body.prompt.trim();
+    }
+    if (
+      body.appearsIn === "female" ||
+      body.appearsIn === "male" ||
+      body.appearsIn === "both"
+    ) {
+      cat.appearsIn = body.appearsIn;
     }
     const categories = b.categories.slice();
     categories[idx] = cat;

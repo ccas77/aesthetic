@@ -58,11 +58,16 @@ export async function POST(req: Request) {
     const fullPrompt = book.stylePrompt
       ? `${book.stylePrompt}\n\nSubject: ${category.prompt}`
       : category.prompt;
-    // Send every reference the book has registered (male + female)
-    // so Higgsfield can use them as visual anchors. Future work: per
-    // category, restrict to one sex if the prompt is clearly about
-    // one character.
-    const inputImages = (book.references ?? []).map((r) => r.url);
+    // Route references based on who this category's prompt is about.
+    // Default ("both" or undefined) sends every reference; "female"
+    // or "male" narrows to that character's refs so a solo prompt
+    // doesn't leak the other character's features.
+    const appearsIn = category.appearsIn ?? "both";
+    const allRefs = book.references ?? [];
+    const inputImages =
+      appearsIn === "both"
+        ? allRefs.map((r) => r.url)
+        : allRefs.filter((r) => r.sex === appearsIn).map((r) => r.url);
     const imageUrl = await generateStillViaHiggsfield({
       prompt: fullPrompt,
       aspectRatio: "2:3",

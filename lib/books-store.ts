@@ -4,10 +4,16 @@ import { put, list } from "@vercel/blob";
 // owner. Each book carries its own categories; per-book stills live at
 // books/{bookId}/library/{categoryId}.jpg.
 
+// Who appears in the generated image — controls which character
+// references are sent to Higgsfield as input_images. "both" is the
+// default and matches "send every reference on the book" behavior.
+export type CategoryAppearsIn = "female" | "male" | "both";
+
 export interface BookCategory {
   id: string;
   label: string;
   prompt: string;
+  appearsIn?: CategoryAppearsIn;
 }
 
 export interface Caption {

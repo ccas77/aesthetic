@@ -353,9 +353,194 @@ function BookCard({
           />
           <QuotesManager book={book} onChanged={onChanged} />
           <SongsManager book={book} onChanged={onChanged} />
+          <PublishingEditor book={book} onChanged={onChanged} />
         </div>
       )}
     </article>
+  );
+}
+
+interface BridgeAccountSummary {
+  id: number;
+  username: string;
+  platform: "tiktok" | "instagram" | "facebook";
+}
+
+function PublishingEditor({
+  book,
+  onChanged,
+}: {
+  book: Book;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [accounts, setAccounts] = useState<BridgeAccountSummary[] | null>(null);
+  const [accountsConfigured, setAccountsConfigured] = useState<boolean>(true);
+  const [accountsError, setAccountsError] = useState<string>("");
+  const [loadingAccounts, setLoadingAccounts] = useState(true);
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(book.postAccountIds ?? []),
+  );
+  const [caption, setCaption] = useState(book.captionSuffix ?? "");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    setSelected(new Set(book.postAccountIds ?? []));
+    setCaption(book.captionSuffix ?? "");
+  }, [book.id, book.postAccountIds, book.captionSuffix]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/post-bridge/accounts", {
+          cache: "no-store",
+        });
+        if (!r.ok) {
+          if (!cancelled) {
+            setAccountsConfigured(false);
+            setAccountsError(`fetch failed (${r.status})`);
+            setAccounts([]);
+          }
+          return;
+        }
+        const data = (await r.json()) as {
+          configured?: boolean;
+          accounts?: BridgeAccountSummary[];
+          reason?: string;
+          error?: string;
+        };
+        if (cancelled) return;
+        setAccountsConfigured(!!data.configured);
+        setAccounts(data.accounts ?? []);
+        if (!data.configured) setAccountsError(data.reason || data.error || "");
+      } finally {
+        if (!cancelled) setLoadingAccounts(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const toggle = useCallback((id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const dirty =
+    Array.from(selected).sort().join(",") !==
+      (book.postAccountIds ?? []).slice().sort().join(",") ||
+    caption !== (book.captionSuffix ?? "");
+
+  const save = useCallback(async () => {
+    setBusy(true);
+    setStatus("");
+    try {
+      const r = await fetch(`/api/books/${book.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postAccountIds: Array.from(selected),
+          captionSuffix: caption,
+        }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `save failed (${r.status})`);
+      }
+      setStatus("saved");
+      await onChanged();
+    } catch (e) {
+      setStatus((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [book.id, selected, caption, onChanged]);
+
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        publishing
+      </div>
+      <div className="bg-bg border border-line rounded-md px-4 py-4 space-y-4">
+        <div>
+          <div className="text-xs text-muted mb-2">
+            social accounts (renders for this book post to all selected)
+          </div>
+          {loadingAccounts && (
+            <div className="text-sm text-muted">loading accounts…</div>
+          )}
+          {!loadingAccounts && !accountsConfigured && (
+            <div className="text-sm text-muted">
+              <span className="text-red-700">
+                {accountsError || "PostBridge not configured"}
+              </span>{" "}
+              · set POSTBRIDGE_API_KEY to enable.
+            </div>
+          )}
+          {!loadingAccounts && accountsConfigured && accounts && accounts.length === 0 && (
+            <div className="text-sm text-muted">
+              No social accounts connected to your PostBridge workspace yet.
+            </div>
+          )}
+          {accounts && accounts.length > 0 && (
+            <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {accounts.map((a) => (
+                <li key={`${a.platform}:${a.id}`}>
+                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(a.id)}
+                      onChange={() => toggle(a.id)}
+                    />
+                    <span className="text-xs uppercase tracking-wider text-muted">
+                      {a.platform}
+                    </span>
+                    <span className="text-ink truncate">@{a.username}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <label className="block">
+          <span className="text-xs text-muted block mb-1">
+            Caption suffix (optional)
+          </span>
+          <textarea
+            value={caption}
+            onChange={(e) => setCaption(e.target.value)}
+            rows={2}
+            placeholder="#booktok #darkromance"
+            className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
+          />
+          <span className="text-xs text-dim block mt-1">
+            Appended to the quote text on every post for this book.
+          </span>
+        </label>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={!dirty || busy}
+            className="px-4 py-1.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+          >
+            {busy ? "saving…" : "Save publishing settings"}
+          </button>
+          {status && <span className="text-xs text-muted">{status}</span>}
+        </div>
+        <div className="text-xs text-dim leading-relaxed pt-2 border-t border-line">
+          Autopost is off by default. The cron at /api/cron/post drains
+          un-posted renders only when POSTBRIDGE_AUTOPOST_ENABLED=true. Until
+          then the cron reports its candidate as a dry run, so you can verify
+          the right book and accounts are selected before flipping the switch.
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -39,6 +39,14 @@ export interface Book {
   categories: BookCategory[];
   quotes?: Quote[];
   songs?: Song[];
+  // PostBridge social account IDs to publish this book's renders to.
+  // Empty / undefined means no auto-posting even if global autopost
+  // is enabled.
+  postAccountIds?: number[];
+  // Optional caption suffix appended to the quote text on publish
+  // (e.g. "#booktok #darkromance @cordelia"). The quote text itself
+  // is the body of every caption.
+  captionSuffix?: string;
   createdAt: string;
 }
 

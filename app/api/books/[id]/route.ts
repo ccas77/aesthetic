@@ -41,7 +41,12 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       book.coverUrl = blob.url;
     }
   } else {
-    let body: { title?: string; stylePrompt?: string };
+    let body: {
+      title?: string;
+      stylePrompt?: string;
+      postAccountIds?: unknown;
+      captionSuffix?: string;
+    };
     try {
       body = await req.json();
     } catch {
@@ -52,6 +57,15 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }
     if (typeof body.stylePrompt === "string") {
       book.stylePrompt = body.stylePrompt.trim() || undefined;
+    }
+    if (Array.isArray(body.postAccountIds)) {
+      const ids = body.postAccountIds
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      book.postAccountIds = ids;
+    }
+    if (typeof body.captionSuffix === "string") {
+      book.captionSuffix = body.captionSuffix.trim() || undefined;
     }
   }
 

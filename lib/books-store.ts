@@ -10,6 +10,24 @@ export interface BookCategory {
   prompt: string;
 }
 
+export interface Quote {
+  id: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface Song {
+  id: string;
+  title: string;
+  url: string;
+  // Optional metadata. durationSec lets us pick a bpm-appropriate cut
+  // density without re-probing every render; bpm lets the renderer
+  // skip detection entirely once we've measured it once.
+  durationSec?: number;
+  bpm?: number;
+  createdAt: string;
+}
+
 export interface Book {
   id: string;
   title: string;
@@ -19,6 +37,8 @@ export interface Book {
   // visual style without baking style into individual category prompts.
   stylePrompt?: string;
   categories: BookCategory[];
+  quotes?: Quote[];
+  songs?: Song[];
   createdAt: string;
 }
 

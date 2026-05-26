@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import type { Book, BookCategory } from "@/lib/books-store";
+import type { Book, BookCategory, Quote, Song } from "@/lib/books-store";
 import type { FillerStill } from "@/lib/filler-store";
 
 export default function BooksPage() {
@@ -343,16 +343,401 @@ function BookCard({
         </div>
       </div>
       {expanded && (
-        <div className="border-t border-line bg-surface px-4 py-5 space-y-6">
+        <div className="border-t border-line bg-surface px-4 py-5 space-y-8">
           <StyleEditor book={book} onChanged={onChanged} />
           <CategoryManager
             book={book}
             stillIds={stillIds}
             onChanged={onChanged}
           />
+          <QuotesManager book={book} onChanged={onChanged} />
+          <SongsManager book={book} onChanged={onChanged} />
         </div>
       )}
     </article>
+  );
+}
+
+function QuotesManager({
+  book,
+  onChanged,
+}: {
+  book: Book;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [bulk, setBulk] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState("");
+
+  const [single, setSingle] = useState("");
+  const [singleBusy, setSingleBusy] = useState(false);
+
+  const quotes = book.quotes ?? [];
+
+  const addBulk = useCallback(async () => {
+    setBulkError("");
+    // Each PARAGRAPH (blank-line-separated block) becomes one quote so a
+    // multi-line quote with internal line breaks survives the paste.
+    const blocks = bulk
+      .split(/\n\s*\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (blocks.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const r = await fetch(`/api/books/${book.id}/quotes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texts: blocks }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `add failed (${r.status})`);
+      }
+      setBulk("");
+      await onChanged();
+    } catch (e) {
+      setBulkError((e as Error).message);
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [bulk, book.id, onChanged]);
+
+  const addSingle = useCallback(async () => {
+    if (!single.trim()) return;
+    setSingleBusy(true);
+    try {
+      const r = await fetch(`/api/books/${book.id}/quotes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: single.trim() }),
+      });
+      if (r.ok) {
+        setSingle("");
+        await onChanged();
+      }
+    } finally {
+      setSingleBusy(false);
+    }
+  }, [single, book.id, onChanged]);
+
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        quotes · {quotes.length}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block">
+            <span className="text-xs text-muted block mb-1">Bulk paste</span>
+            <textarea
+              value={bulk}
+              onChange={(e) => setBulk(e.target.value)}
+              placeholder={"Separate each quote with a blank line.\n\nLine breaks within a quote are preserved."}
+              rows={5}
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
+            />
+            <span className="text-xs text-dim block mt-1">
+              One quote per blank-line-separated block. Newlines inside a block stay intact.
+            </span>
+          </label>
+          {bulkError && <div className="text-red-700 text-sm mt-2">{bulkError}</div>}
+          <button
+            onClick={addBulk}
+            disabled={!bulk.trim() || bulkBusy}
+            className="mt-2 px-4 py-1.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+          >
+            {bulkBusy ? "adding…" : "Add all"}
+          </button>
+        </div>
+        <div>
+          <label className="block">
+            <span className="text-xs text-muted block mb-1">Add one</span>
+            <textarea
+              value={single}
+              onChange={(e) => setSingle(e.target.value)}
+              rows={5}
+              placeholder="A single quote, line breaks allowed"
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
+            />
+          </label>
+          <button
+            onClick={addSingle}
+            disabled={!single.trim() || singleBusy}
+            className="mt-2 px-4 py-1.5 border border-line2 text-ink rounded hover:bg-ink hover:text-bg transition-colors disabled:text-dim disabled:cursor-not-allowed"
+          >
+            {singleBusy ? "adding…" : "Add"}
+          </button>
+        </div>
+      </div>
+      {quotes.length > 0 && (
+        <ul className="mt-5 space-y-2">
+          {quotes.map((q) => (
+            <li key={q.id}>
+              <QuoteRow bookId={book.id} quote={q} onChanged={onChanged} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function QuoteRow({
+  bookId,
+  quote,
+  onChanged,
+}: {
+  bookId: string;
+  quote: Quote;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(quote.text);
+  const [busy, setBusy] = useState(false);
+
+  const save = useCallback(async () => {
+    if (!draft.trim() || draft.trim() === quote.text) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/books/${bookId}/quotes/${quote.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: draft.trim() }),
+      });
+      if (r.ok) {
+        setEditing(false);
+        await onChanged();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [draft, quote.text, quote.id, bookId, onChanged]);
+
+  const remove = useCallback(async () => {
+    if (!confirm("Remove this quote?")) return;
+    setBusy(true);
+    const r = await fetch(`/api/books/${bookId}/quotes/${quote.id}`, {
+      method: "DELETE",
+    });
+    if (r.ok) await onChanged();
+    setBusy(false);
+  }, [bookId, quote.id, onChanged]);
+
+  return (
+    <div className="bg-bg border border-line rounded-md px-3 py-2">
+      {editing ? (
+        <div className="space-y-2">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={3}
+            className="w-full bg-bg border border-line2 rounded px-2 py-1 text-sm focus:border-ink focus:outline-none resize-y"
+          />
+          <div className="flex gap-3 text-sm">
+            <button
+              onClick={save}
+              disabled={busy || !draft.trim()}
+              className="text-ink hover:text-sepia disabled:text-dim"
+            >
+              {busy ? "saving…" : "save"}
+            </button>
+            <button
+              onClick={() => {
+                setDraft(quote.text);
+                setEditing(false);
+              }}
+              className="text-muted hover:text-ink"
+            >
+              cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0 whitespace-pre-wrap text-sm text-ink leading-relaxed">
+            {quote.text}
+          </div>
+          <div className="flex flex-col gap-1 text-sm shrink-0">
+            <button
+              onClick={() => setEditing(true)}
+              disabled={busy}
+              className="text-muted hover:text-ink"
+            >
+              edit
+            </button>
+            <button
+              onClick={remove}
+              disabled={busy}
+              className="text-red-700 hover:text-red-900"
+            >
+              remove
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SongsManager({
+  book,
+  onChanged,
+}: {
+  book: Book;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [title, setTitle] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [bpm, setBpm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const songs = book.songs ?? [];
+
+  const submit = useCallback(async () => {
+    if (!title.trim() || !file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const form = new FormData();
+      form.append("title", title.trim());
+      form.append("file", file);
+      if (bpm.trim() && Number.isFinite(Number(bpm))) form.append("bpm", bpm.trim());
+      const r = await fetch(`/api/books/${book.id}/songs`, {
+        method: "POST",
+        body: form,
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `upload failed (${r.status})`);
+      }
+      setTitle("");
+      setFile(null);
+      setBpm("");
+      await onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [title, file, bpm, book.id, onChanged]);
+
+  return (
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        songs · {songs.length}
+      </div>
+      <div className="bg-bg border border-line rounded-md px-4 py-4 space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs text-muted block mb-1">Title</span>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="song title"
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-muted block mb-1">BPM (optional)</span>
+            <input
+              value={bpm}
+              onChange={(e) => setBpm(e.target.value)}
+              placeholder="80"
+              inputMode="numeric"
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
+            />
+            <span className="text-xs text-dim block mt-1">
+              Leave blank and the renderer assumes 80 bpm.
+            </span>
+          </label>
+        </div>
+        <div>
+          <span className="text-xs text-muted block mb-1">Audio file</span>
+          <label className="inline-flex items-center gap-3 cursor-pointer">
+            <span className="px-3 py-2 border border-line2 rounded bg-bg text-ink hover:bg-ink hover:text-bg transition-colors">
+              {file ? "Replace audio" : "Choose audio"}
+            </span>
+            <span className="text-sm text-muted">
+              {file
+                ? `${file.name} · ${(file.size / 1024 / 1024).toFixed(2)} MB`
+                : "no file chosen"}
+            </span>
+            <input
+              type="file"
+              accept="audio/*"
+              className="sr-only"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={submit}
+            disabled={!title.trim() || !file || busy}
+            className="px-5 py-2 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+          >
+            {busy ? "uploading…" : "Upload song"}
+          </button>
+          {error && <span className="text-red-700 text-sm">{error}</span>}
+        </div>
+      </div>
+      {songs.length > 0 && (
+        <ul className="mt-4 space-y-2">
+          {songs.map((s) => (
+            <li key={s.id}>
+              <SongRow bookId={book.id} song={s} onChanged={onChanged} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function SongRow({
+  bookId,
+  song,
+  onChanged,
+}: {
+  bookId: string;
+  song: Song;
+  onChanged: () => Promise<void> | void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const remove = useCallback(async () => {
+    if (!confirm(`Remove "${song.title}"?`)) return;
+    setBusy(true);
+    const r = await fetch(`/api/books/${bookId}/songs/${song.id}`, {
+      method: "DELETE",
+    });
+    if (r.ok) await onChanged();
+    setBusy(false);
+  }, [bookId, song.id, song.title, onChanged]);
+
+  return (
+    <div className="bg-bg border border-line rounded-md px-3 py-3 flex items-center gap-3">
+      <audio src={song.url} controls className="h-8 max-w-xs" />
+      <div className="flex-1 min-w-0">
+        <div className="text-ink truncate">{song.title}</div>
+        <div className="text-xs text-muted">
+          {song.bpm ? `${song.bpm} bpm · ` : ""}
+          {song.durationSec ? `${song.durationSec.toFixed(0)}s` : ""}
+        </div>
+      </div>
+      <button
+        onClick={remove}
+        disabled={busy}
+        className="text-red-700 hover:text-red-900 text-sm"
+      >
+        remove
+      </button>
+    </div>
   );
 }
 

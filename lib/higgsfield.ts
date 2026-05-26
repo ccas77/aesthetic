@@ -1,146 +1,170 @@
-// Calls Higgsfield's MCP server via the Anthropic API to generate a single
-// image. Returns the URL of the generated image (still on Higgsfield's CDN).
-//
-// Requires env vars:
-//   ANTHROPIC_API_KEY         — required
-//   HIGGSFIELD_MCP_URL        — defaults to https://mcp.higgsfield.ai/mcp
-//   HIGGSFIELD_TOKEN_SECRET   — required, encrypts the OAuth tokens at rest
-//
-// The Higgsfield bearer comes from the OAuth flow under
-// /api/auth/higgsfield; getAccessToken() auto-refreshes near expiry.
+import { withMcp, type CallToolResult } from "./mcp-client";
 
-import Anthropic from "@anthropic-ai/sdk";
-import { getAccessToken } from "./higgsfield-oauth";
+// Generates a single image via the Higgsfield MCP server. Returns the
+// URL of the generated image on Higgsfield's CDN.
+//
+// generate_image is async: it returns a job UUID and the image URL only
+// appears later via job_status. We poll job_status with sync=true so the
+// MCP server holds each call for up to ~25s and replies on the first
+// terminal state, instead of forcing a tight client-side polling loop.
 
 interface GenerateOptions {
   prompt: string;
-  aspectRatio?: string; // e.g. "2:3"
+  aspectRatio?: string;
+  model?: string;
 }
 
 export async function generateStillViaHiggsfield(
   opts: GenerateOptions,
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
-
-  const mcpUrl = process.env.HIGGSFIELD_MCP_URL || "https://mcp.higgsfield.ai/mcp";
-  const mcpToken = await getAccessToken();
-  if (!mcpToken) {
-    throw new Error(
-      "Higgsfield not connected. Visit /api/auth/higgsfield to authorize.",
-    );
-  }
-
-  const client = new Anthropic({ apiKey });
-
-  const mcpServer: Record<string, unknown> = {
-    type: "url",
-    url: mcpUrl,
-    name: "higgsfield",
-    authorization_token: mcpToken,
-  };
-
   const aspect = opts.aspectRatio || "2:3";
+  const model = opts.model || "nano_banana_pro";
 
-  // Higgsfield's generate_image is async: it returns a job UUID and the
-  // image URL only appears later via job_status. The system prompt below
-  // instructs Claude to chain generate_image → job_status(sync=true) until
-  // the job lands in a terminal state, then emit the rawUrl as plain text.
-  const response = await client.beta.messages.create({
-    model: "claude-opus-4-7",
-    max_tokens: 8192,
-    betas: ["mcp-client-2025-04-04"],
-    mcp_servers: [
-      mcpServer as unknown as Anthropic.Beta.BetaRequestMCPServerURLDefinition,
-    ],
-    system:
-      "You are an image-fetching agent. Use the Higgsfield MCP tools.\n" +
-      "1. Call generate_image with arguments { params: { prompt, model: \"nano_banana_pro\", aspect_ratio } }.\n" +
-      "2. From the response, extract the job UUID at results[0].id (it is also called id or job_id in some shapes).\n" +
-      "3. Call job_status with arguments { jobId: <UUID>, sync: true }. If status is pending or processing, call it again.\n" +
-      "4. When status is completed or succeeded, extract generation.results.rawUrl (fall back to minUrl, then url).\n" +
-      "5. Reply with ONLY that URL as plain text, nothing else. No prose, no markdown, no quotes.\n" +
-      "If any tool call returns an error, reply with the literal string ERROR: followed by the error message.",
-    messages: [
-      {
-        role: "user",
-        content: `prompt: ${opts.prompt}\naspect_ratio: ${aspect}`,
-      },
-    ],
+  return withMcp(async (session) => {
+    const genResult = await session.callTool("generate_image", {
+      params: { prompt: opts.prompt, model, aspect_ratio: aspect },
+    });
+    if (genResult.isError) {
+      throw new Error(
+        `Higgsfield generate_image error: ${describeResult(genResult)}`,
+      );
+    }
+    const jobId = extractJobId(genResult);
+    if (!jobId) {
+      throw new Error(
+        `Higgsfield generate_image returned no job id: ${describeResult(genResult)}`,
+      );
+    }
+
+    const deadline = Date.now() + 4 * 60_000;
+    let lastStatus = "pending";
+    while (Date.now() < deadline) {
+      const statusResult = await session.callTool("job_status", {
+        jobId,
+        sync: true,
+      });
+      if (statusResult.isError) {
+        throw new Error(
+          `Higgsfield job_status error: ${describeResult(statusResult)}`,
+        );
+      }
+      const { status, imageUrl } = extractStatus(statusResult);
+      lastStatus = status;
+      if (status === "completed" || status === "succeeded") {
+        if (!imageUrl) {
+          throw new Error(
+            `Higgsfield job ${jobId} completed but URL missing: ${describeResult(statusResult)}`,
+          );
+        }
+        return imageUrl;
+      }
+      if (status === "failed" || status === "cancelled" || status === "error") {
+        throw new Error(
+          `Higgsfield job ${jobId} ${status}: ${describeResult(statusResult)}`,
+        );
+      }
+      // Otherwise pending/processing — sync:true already held the call,
+      // loop once to issue another long-poll.
+    }
+    throw new Error(
+      `Higgsfield job ${jobId} timed out after 4 min (last status: ${lastStatus})`,
+    );
   });
+}
 
-  type AnyBlock = { type: string; text?: string; content?: unknown };
-  const blocks = (response.content as unknown as AnyBlock[]) || [];
+function extractJobId(r: CallToolResult): string | undefined {
+  const merged = mergeResult(r);
+  const firstResult = firstResultRecord(merged);
+  return (
+    pickString(merged, ["job_id", "jobId", "id"]) ??
+    (firstResult ? pickString(firstResult, ["id", "job_id"]) : undefined)
+  );
+}
 
-  // Preferred path: the final text block is the URL.
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i];
-    if (b.type === "text" && typeof b.text === "string") {
-      const trimmed = b.text.trim();
-      if (trimmed.startsWith("ERROR:")) {
-        throw new Error(`Higgsfield: ${trimmed}`);
-      }
-      const url = extractAnyUrl(trimmed);
-      if (url) return url;
+function extractStatus(
+  r: CallToolResult,
+): { status: string; imageUrl?: string } {
+  const merged = mergeResult(r);
+  const gen =
+    (isRecord(merged.generation) ? merged.generation : undefined) ??
+    firstResultRecord(merged);
+  const status =
+    pickString(merged, ["status", "state"]) ??
+    (gen ? pickString(gen, ["status", "state"]) : undefined) ??
+    "unknown";
+  let imageUrl = pickString(merged, ["image_url", "imageUrl", "url"]);
+  if (!imageUrl && gen) {
+    const results = gen.results;
+    if (isRecord(results)) {
+      imageUrl = pickString(results, [
+        "rawUrl",
+        "url",
+        "minUrl",
+        "image_url",
+        "imageUrl",
+      ]);
+    }
+    if (!imageUrl) {
+      imageUrl = pickString(gen, ["url", "image_url", "imageUrl"]);
     }
   }
+  return { status, imageUrl };
+}
 
-  // Fallback: scan the last mcp_tool_result for a URL in the known JSON paths.
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    const b = blocks[i];
-    if (b.type !== "mcp_tool_result") continue;
-    const inner = b.content;
-    const texts: string[] = [];
-    if (typeof inner === "string") texts.push(inner);
-    else if (Array.isArray(inner)) {
-      for (const item of inner as Array<{ type?: string; text?: string }>) {
-        if (item?.text) texts.push(item.text);
+function mergeResult(r: CallToolResult): Record<string, unknown> {
+  const sc = r.structuredContent ?? {};
+  const fromText = parseTextContent(r.content);
+  return { ...fromText, ...sc };
+}
+
+function parseTextContent(
+  content: CallToolResult["content"],
+): Record<string, unknown> {
+  if (!content) return {};
+  for (const c of content) {
+    if (c.type === "text" && typeof c.text === "string") {
+      try {
+        const parsed = JSON.parse(c.text);
+        if (isRecord(parsed)) return parsed;
+      } catch {
+        // not JSON, ignore
       }
-    }
-    for (const t of texts) {
-      const url = extractRawUrlFromJson(t) ?? extractAnyUrl(t);
-      if (url) return url;
     }
   }
+  return {};
+}
 
-  const dump = blocks
-    .map((b) => {
-      if (b.type === "text") return `text: ${(b.text ?? "").slice(0, 200)}`;
-      if (b.type === "mcp_tool_result") {
-        const c = b.content;
-        const flat = typeof c === "string" ? c : JSON.stringify(c);
-        return `mcp_tool_result: ${flat.slice(0, 300)}`;
-      }
-      return b.type;
-    })
+function firstResultRecord(
+  obj: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  for (const k of ["results", "result", "data", "images"]) {
+    const v = obj[k];
+    if (Array.isArray(v) && v.length > 0 && isRecord(v[0])) return v[0];
+    if (isRecord(v) && !Array.isArray(v)) return v;
+  }
+  return undefined;
+}
+
+function pickString(
+  obj: Record<string, unknown>,
+  keys: string[],
+): string | undefined {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === "string" && v.length > 0) return v;
+  }
+  return undefined;
+}
+
+function isRecord(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === "object" && !Array.isArray(x);
+}
+
+function describeResult(r: CallToolResult): string {
+  const sc = r.structuredContent ? JSON.stringify(r.structuredContent).slice(0, 300) : "";
+  const texts = (r.content ?? [])
+    .filter((c) => c.type === "text" && c.text)
+    .map((c) => c.text!.slice(0, 200))
     .join(" | ");
-  throw new Error(`Higgsfield response did not include an image URL. Blocks: ${dump}`);
-}
-
-function extractRawUrlFromJson(s: string): string | null {
-  try {
-    const obj = JSON.parse(s);
-    const candidates = [
-      obj?.generation?.results?.rawUrl,
-      obj?.generation?.results?.minUrl,
-      obj?.generation?.results?.url,
-      obj?.results?.[0]?.rawUrl,
-      obj?.results?.[0]?.minUrl,
-      obj?.results?.[0]?.url,
-      obj?.url,
-      obj?.image_url,
-      obj?.imageUrl,
-    ];
-    for (const c of candidates) {
-      if (typeof c === "string" && /^https?:\/\//.test(c)) return c;
-    }
-  } catch {
-    /* not JSON */
-  }
-  return null;
-}
-
-function extractAnyUrl(s: string): string | null {
-  const match = s.match(/https?:\/\/[^\s"'<>]+/i);
-  return match ? match[0] : null;
+  return [sc, texts].filter(Boolean).join(" :: ");
 }

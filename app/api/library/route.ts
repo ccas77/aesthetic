@@ -34,11 +34,9 @@ export async function GET(req: Request) {
         const blob = blobs.find((b) =>
           b.pathname.startsWith(`books/${bookId}/library/${cat.id}.`),
         );
-        return blob
-          ? { id: cat.id, url: blob.url, tags: [] as string[] }
-          : null;
+        return blob ? { id: cat.id, url: blob.url } : null;
       })
-      .filter((s): s is { id: string; url: string; tags: string[] } => !!s);
+      .filter((s): s is { id: string; url: string } => !!s);
     return NextResponse.json({
       configured: true,
       stills,

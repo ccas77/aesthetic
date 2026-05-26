@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 interface RouteParams {
-  params: Promise<{ id: string; qid: string }>;
+  params: Promise<{ id: string; cid: string }>;
 }
 
 export async function PATCH(req: Request, { params }: RouteParams) {
@@ -15,7 +15,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       { status: 503 },
     );
   }
-  const { id, qid } = await params;
+  const { id, cid } = await params;
   let body: { text?: unknown };
   try {
     body = await req.json();
@@ -27,16 +27,16 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   if (!book) {
     return NextResponse.json({ error: "book not found" }, { status: 404 });
   }
-  const q = (book.quotes ?? []).find((x) => x.id === qid);
-  if (!q) {
-    return NextResponse.json({ error: "quote not found" }, { status: 404 });
+  const c = (book.captions ?? []).find((x) => x.id === cid);
+  if (!c) {
+    return NextResponse.json({ error: "caption not found" }, { status: 404 });
   }
   if (typeof body.text !== "string" || !body.text.trim()) {
     return NextResponse.json({ error: "text required" }, { status: 400 });
   }
-  q.text = body.text.trim();
+  c.text = body.text.trim();
   await upsertBook(book);
-  return NextResponse.json({ book, quote: q });
+  return NextResponse.json({ book, caption: c });
 }
 
 export async function DELETE(_req: Request, { params }: RouteParams) {
@@ -46,16 +46,16 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       { status: 503 },
     );
   }
-  const { id, qid } = await params;
+  const { id, cid } = await params;
   const books = await readBooks();
   const book = books.find((b) => b.id === id);
   if (!book) {
     return NextResponse.json({ error: "book not found" }, { status: 404 });
   }
-  const before = (book.quotes ?? []).length;
-  book.quotes = (book.quotes ?? []).filter((x) => x.id !== qid);
-  if ((book.quotes ?? []).length === before) {
-    return NextResponse.json({ error: "quote not found" }, { status: 404 });
+  const before = (book.captions ?? []).length;
+  book.captions = (book.captions ?? []).filter((x) => x.id !== cid);
+  if ((book.captions ?? []).length === before) {
+    return NextResponse.json({ error: "caption not found" }, { status: 404 });
   }
   await upsertBook(book);
   return NextResponse.json({ ok: true });

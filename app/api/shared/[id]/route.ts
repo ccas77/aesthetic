@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { del } from "@vercel/blob";
-import { readFiller, writeFiller } from "@/lib/filler-store";
+import { readShared, writeShared } from "@/lib/shared-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,10 +23,10 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-  const stills = await readFiller();
+  const stills = await readShared();
   const idx = stills.findIndex((s) => s.id === id);
   if (idx === -1) {
-    return NextResponse.json({ error: "filler not found" }, { status: 404 });
+    return NextResponse.json({ error: "still not found" }, { status: 404 });
   }
   if (typeof body.label === "string" && body.label.trim()) {
     stills[idx].label = body.label.trim();
@@ -34,7 +34,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   if (typeof body.prompt === "string") {
     stills[idx].prompt = body.prompt.trim() || undefined;
   }
-  await writeFiller(stills);
+  await writeShared(stills);
   return NextResponse.json({ still: stills[idx] });
 }
 
@@ -46,20 +46,22 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
     );
   }
   const { id } = await params;
-  const stills = await readFiller();
+  const stills = await readShared();
   const target = stills.find((s) => s.id === id);
   if (!target) {
-    return NextResponse.json({ error: "filler not found" }, { status: 404 });
+    return NextResponse.json({ error: "still not found" }, { status: 404 });
   }
-  const next = stills.filter((s) => s.id !== id);
-  await writeFiller(next);
-  // Best-effort: only delete the blob if it lives under our system/filler/
-  // namespace. Legacy library/* URLs (auto-seeded migrations) we leave alone.
-  if (target.url.includes("/system/filler/")) {
+  await writeShared(stills.filter((s) => s.id !== id));
+  // Only delete the blob if it lives in our shared/filler namespace.
+  // Legacy library/*.jpg URLs (auto-seeded) are left alone.
+  if (
+    target.url.includes("/system/shared/") ||
+    target.url.includes("/system/filler/")
+  ) {
     try {
       await del(target.url);
     } catch (e) {
-      console.error("filler blob delete failed", e);
+      console.error("shared blob delete failed", e);
     }
   }
   return NextResponse.json({ ok: true });

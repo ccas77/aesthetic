@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { put, list, del } from "@vercel/blob";
 import { readBooks } from "@/lib/books-store";
 
 export const runtime = "nodejs";
@@ -68,6 +68,49 @@ export async function POST(req: Request) {
     label: cat.label,
     blobUrl: blob.url,
   });
+}
+
+// DELETE (JSON body): { bookId, category }
+// Removes the still blob for a category but keeps the category's
+// prompt + label intact, so the user can regenerate or re-upload
+// later. Use the /api/books/[id]/categories/[catId] DELETE to drop
+// the whole category.
+export async function DELETE(req: Request) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return NextResponse.json(
+      { error: "BLOB_READ_WRITE_TOKEN not set" },
+      { status: 503 },
+    );
+  }
+  let body: { bookId?: string; category?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
+  }
+  const bookId = (body.bookId ?? "").trim();
+  const categoryId = (body.category ?? "").trim();
+  if (!bookId || !categoryId) {
+    return NextResponse.json(
+      { error: "bookId and category required" },
+      { status: 400 },
+    );
+  }
+  try {
+    const { blobs } = await list({
+      prefix: `books/${bookId}/library/${categoryId}.`,
+      limit: 5,
+    });
+    if (blobs.length > 0) {
+      await del(blobs.map((b) => b.url));
+    }
+    return NextResponse.json({ ok: true, removed: blobs.length });
+  } catch (e) {
+    return NextResponse.json(
+      { error: (e as Error).message },
+      { status: 500 },
+    );
+  }
 }
 
 function extFromMime(mime: string): string {

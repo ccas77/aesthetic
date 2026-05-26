@@ -2,13 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import type { Book, BookCategory, Quote, Song } from "@/lib/books-store";
-import type { FillerStill } from "@/lib/filler-store";
+import type {
+  Book,
+  BookCategory,
+  Caption,
+  Song,
+} from "@/lib/books-store";
 
 export default function BooksPage() {
   const [books, setBooks] = useState<Book[]>([]);
-  const [filler, setFiller] = useState<FillerStill[]>([]);
-  const [stillsByBook, setStillsByBook] = useState<Record<string, Set<string>>>({});
+  const [stillsByBook, setStillsByBook] = useState<
+    Record<string, Record<string, string>>
+  >({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const refreshBooks = useCallback(async () => {
@@ -17,68 +22,58 @@ export default function BooksPage() {
     const data = (await r.json()) as { books?: Book[] };
     const list = data.books ?? [];
     setBooks(list);
-    // Refresh library presence for each book in parallel.
     const entries = await Promise.all(
       list.map(async (b) => {
         try {
-          const lr = await fetch(`/api/library?bookId=${encodeURIComponent(b.id)}`, {
-            cache: "no-store",
-          });
-          if (!lr.ok) return [b.id, new Set<string>()] as const;
-          const d = (await lr.json()) as { stills?: Array<{ id: string }> };
-          return [b.id, new Set((d.stills ?? []).map((s) => s.id))] as const;
+          const lr = await fetch(
+            `/api/library?bookId=${encodeURIComponent(b.id)}`,
+            { cache: "no-store" },
+          );
+          if (!lr.ok) return [b.id, {} as Record<string, string>] as const;
+          const d = (await lr.json()) as {
+            stills?: Array<{ id: string; url: string }>;
+          };
+          const byId: Record<string, string> = {};
+          for (const s of d.stills ?? []) byId[s.id] = s.url;
+          return [b.id, byId] as const;
         } catch {
-          return [b.id, new Set<string>()] as const;
+          return [b.id, {} as Record<string, string>] as const;
         }
       }),
     );
     setStillsByBook(Object.fromEntries(entries));
   }, []);
 
-  const refreshFiller = useCallback(async () => {
-    const r = await fetch("/api/filler", { cache: "no-store" });
-    if (!r.ok) return;
-    const data = (await r.json()) as { stills?: FillerStill[] };
-    setFiller(data.stills ?? []);
-  }, []);
-
   useEffect(() => {
     void refreshBooks();
-    void refreshFiller();
-  }, [refreshBooks, refreshFiller]);
+  }, [refreshBooks]);
 
   return (
-    <main className="min-h-screen px-6 md:px-12 py-8 max-w-5xl mx-auto font-sans text-ink">
-      <header className="flex items-baseline justify-between mb-8 pb-3 border-b border-line2">
-        <h1 className="h-serif text-3xl md:text-4xl tracking-tight">books</h1>
-        <Link
-          href="/"
-          className="text-sm text-muted hover:text-ink underline underline-offset-4"
-        >
-          ← back to render
-        </Link>
-      </header>
+    <main className="max-w-5xl mx-auto px-6 md:px-12 py-8 font-sans text-ink">
+      <h1 className="text-sm font-semibold uppercase tracking-wider text-muted mb-4">
+        books
+      </h1>
 
-      <section className="mb-12">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">
+      <section className="mb-10">
+        <h2 className="text-xs text-muted uppercase tracking-wider mb-2">
           add a book
         </h2>
         <AddBookForm
           books={books}
-          onCreated={async (newId) => {
+          onCreated={async (id) => {
             await refreshBooks();
-            setExpandedId(newId);
+            setExpandedId(id);
           }}
         />
       </section>
 
-      <section className="mb-12">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">
+      <section>
+        <h2 className="text-xs text-muted uppercase tracking-wider mb-2">
           your books · {books.length}
         </h2>
         {books.length === 0 ? (
-          <div className="text-muted text-sm bg-surface border border-line px-4 py-6 rounded-md">
-            No books yet. Add one above to get started.
+          <div className="text-muted text-sm bg-surface border border-line rounded-md px-4 py-6">
+            No books yet. Add one above.
           </div>
         ) : (
           <ul className="space-y-3">
@@ -86,7 +81,7 @@ export default function BooksPage() {
               <li key={b.id}>
                 <BookCard
                   book={b}
-                  stillIds={stillsByBook[b.id] ?? new Set()}
+                  stillsByCategory={stillsByBook[b.id] ?? {}}
                   expanded={expandedId === b.id}
                   onToggle={() =>
                     setExpandedId((prev) => (prev === b.id ? null : b.id))
@@ -98,17 +93,6 @@ export default function BooksPage() {
           </ul>
         )}
       </section>
-
-      <section className="mb-16">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted mb-3">
-          atmospheric stills · {filler.length}
-        </h2>
-        <p className="text-sm text-muted mb-4">
-          A shared pool of atmospheric images, used across every book&rsquo;s renders so each
-          video has visual variety even before a book has many of its own categories.
-        </p>
-        <FillerManager filler={filler} onChanged={refreshFiller} />
-      </section>
     </main>
   );
 }
@@ -118,7 +102,7 @@ function AddBookForm({
   onCreated,
 }: {
   books: Book[];
-  onCreated: (newId: string) => void | Promise<void>;
+  onCreated: (id: string) => void | Promise<void>;
 }) {
   const [title, setTitle] = useState("");
   const [cover, setCover] = useState<File | null>(null);
@@ -167,7 +151,7 @@ function AddBookForm({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="book title"
-            className="w-full bg-bg border border-line2 rounded px-3 py-2 text-ink placeholder:text-dim focus:border-ink focus:outline-none"
+            className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
           />
         </label>
         <div>
@@ -197,7 +181,7 @@ function AddBookForm({
             <select
               value={copyFromId}
               onChange={(e) => setCopyFromId(e.target.value)}
-              className="w-full bg-bg border border-line2 rounded px-3 py-2 text-ink focus:border-ink focus:outline-none"
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
             >
               <option value="">start with no categories</option>
               {books.map((b) => (
@@ -209,19 +193,16 @@ function AddBookForm({
           </label>
         )}
         <label className="block md:col-span-2">
-          <span className="text-xs text-muted block mb-1">
-            Style brief (optional)
-          </span>
+          <span className="text-xs text-muted block mb-1">Style brief (optional)</span>
           <textarea
             value={stylePrompt}
             onChange={(e) => setStylePrompt(e.target.value)}
-            placeholder="e.g. black-dominant low-key photography, shadow-weighted exposure, suppressed midtones, near-monochromatic palette…"
             rows={3}
+            placeholder="e.g. black-dominant low-key photography, shadow-weighted exposure, suppressed midtones, near-monochromatic palette…"
             className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
           />
           <span className="text-xs text-dim block mt-1">
-            Prepended to every category prompt when generating this book&rsquo;s stills.
-            Leave blank if you want category prompts to stand alone.
+            Prepended to every image prompt when generating this book&rsquo;s stills.
           </span>
         </label>
       </div>
@@ -244,20 +225,20 @@ function AddBookForm({
 
 function BookCard({
   book,
-  stillIds,
+  stillsByCategory,
   expanded,
   onToggle,
   onChanged,
 }: {
   book: Book;
-  stillIds: Set<string>;
+  stillsByCategory: Record<string, string>;
   expanded: boolean;
   onToggle: () => void;
   onChanged: () => Promise<void> | void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState(book.title);
-  const completeCount = book.categories.filter((c) => stillIds.has(c.id)).length;
+  const stillCount = book.categories.filter((c) => stillsByCategory[c.id]).length;
 
   const saveRename = useCallback(async () => {
     if (!titleDraft.trim() || titleDraft.trim() === book.title) {
@@ -276,7 +257,7 @@ function BookCard({
   const onDelete = useCallback(async () => {
     if (
       !confirm(
-        `Delete "${book.title}"? This removes its cover and all generated stills.`,
+        `Delete "${book.title}"? Cover and all generated stills will be removed.`,
       )
     ) {
       return;
@@ -307,29 +288,28 @@ function BookCard({
                   }
                 }}
                 autoFocus
-                className="flex-1 bg-bg border border-line2 rounded px-2 py-1 text-ink focus:border-ink focus:outline-none"
+                className="flex-1 bg-bg border border-line2 rounded px-2 py-1 focus:border-ink focus:outline-none"
               />
-              <button
-                onClick={saveRename}
-                className="text-sm text-muted hover:text-ink"
-              >
+              <button onClick={saveRename} className="text-sm text-muted hover:text-ink">
                 save
               </button>
             </div>
           ) : (
             <>
-              <h3 className="h-serif text-xl text-ink leading-tight truncate">
-                {book.title}
-              </h3>
+              <h3 className="text-lg text-ink leading-tight truncate">{book.title}</h3>
               <div className="text-xs text-muted mt-0.5">
-                {book.categories.length} categories ·{" "}
-                {completeCount}/{book.categories.length} stills ready
+                {(book.captions ?? []).length} captions ·{" "}
+                {(book.songs ?? []).length} songs · {book.categories.length} prompts ·{" "}
+                {stillCount}/{book.categories.length} stills
               </div>
             </>
           )}
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <button onClick={() => setRenaming((v) => !v)} className="text-muted hover:text-ink">
+          <button
+            onClick={() => setRenaming((v) => !v)}
+            className="text-muted hover:text-ink"
+          >
             rename
           </button>
           <button onClick={onDelete} className="text-red-700 hover:text-red-900">
@@ -339,103 +319,39 @@ function BookCard({
             onClick={onToggle}
             className="px-3 py-1.5 border border-line2 rounded text-ink hover:bg-ink hover:text-bg transition-colors"
           >
-            {expanded ? "close" : "categories"}
+            {expanded ? "close" : "edit"}
           </button>
         </div>
       </div>
+
       {expanded && (
         <div className="border-t border-line bg-surface px-4 py-5 space-y-8">
           <StyleEditor book={book} onChanged={onChanged} />
-          <CategoryManager
+          <CaptionsSection book={book} onChanged={onChanged} />
+          <MusicSection book={book} onChanged={onChanged} />
+          <ImagePromptsSection book={book} onChanged={onChanged} />
+          <LibrarySection
             book={book}
-            stillIds={stillIds}
+            stillsByCategory={stillsByCategory}
             onChanged={onChanged}
           />
-          <QuotesManager book={book} onChanged={onChanged} />
-          <SongsManager book={book} onChanged={onChanged} />
-          <PublishingEditor book={book} onChanged={onChanged} />
         </div>
       )}
     </article>
   );
 }
 
-interface BridgeAccountSummary {
-  id: number;
-  username: string;
-  platform: "tiktok" | "instagram" | "facebook";
-}
-
-function PublishingEditor({
+function StyleEditor({
   book,
   onChanged,
 }: {
   book: Book;
   onChanged: () => Promise<void> | void;
 }) {
-  const [accounts, setAccounts] = useState<BridgeAccountSummary[] | null>(null);
-  const [accountsConfigured, setAccountsConfigured] = useState<boolean>(true);
-  const [accountsError, setAccountsError] = useState<string>("");
-  const [loadingAccounts, setLoadingAccounts] = useState(true);
-  const [selected, setSelected] = useState<Set<number>>(
-    () => new Set(book.postAccountIds ?? []),
-  );
-  const [caption, setCaption] = useState(book.captionSuffix ?? "");
+  const [draft, setDraft] = useState(book.stylePrompt ?? "");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
-
-  useEffect(() => {
-    setSelected(new Set(book.postAccountIds ?? []));
-    setCaption(book.captionSuffix ?? "");
-  }, [book.id, book.postAccountIds, book.captionSuffix]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch("/api/post-bridge/accounts", {
-          cache: "no-store",
-        });
-        if (!r.ok) {
-          if (!cancelled) {
-            setAccountsConfigured(false);
-            setAccountsError(`fetch failed (${r.status})`);
-            setAccounts([]);
-          }
-          return;
-        }
-        const data = (await r.json()) as {
-          configured?: boolean;
-          accounts?: BridgeAccountSummary[];
-          reason?: string;
-          error?: string;
-        };
-        if (cancelled) return;
-        setAccountsConfigured(!!data.configured);
-        setAccounts(data.accounts ?? []);
-        if (!data.configured) setAccountsError(data.reason || data.error || "");
-      } finally {
-        if (!cancelled) setLoadingAccounts(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const toggle = useCallback((id: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const dirty =
-    Array.from(selected).sort().join(",") !==
-      (book.postAccountIds ?? []).slice().sort().join(",") ||
-    caption !== (book.captionSuffix ?? "");
+  const dirty = (book.stylePrompt ?? "") !== draft;
 
   const save = useCallback(async () => {
     setBusy(true);
@@ -444,10 +360,7 @@ function PublishingEditor({
       const r = await fetch(`/api/books/${book.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          postAccountIds: Array.from(selected),
-          captionSuffix: caption,
-        }),
+        body: JSON.stringify({ stylePrompt: draft }),
       });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
@@ -460,91 +373,38 @@ function PublishingEditor({
     } finally {
       setBusy(false);
     }
-  }, [book.id, selected, caption, onChanged]);
+  }, [book.id, draft, onChanged]);
 
   return (
     <div>
-      <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
-        publishing
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        style brief
+      </h4>
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        rows={4}
+        placeholder="e.g. black-dominant low-key photography, shadow-weighted exposure, suppressed midtones…"
+        className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
+      />
+      <div className="text-xs text-dim mt-1">
+        Prepended to every image prompt for this book.
       </div>
-      <div className="bg-bg border border-line rounded-md px-4 py-4 space-y-4">
-        <div>
-          <div className="text-xs text-muted mb-2">
-            social accounts (renders for this book post to all selected)
-          </div>
-          {loadingAccounts && (
-            <div className="text-sm text-muted">loading accounts…</div>
-          )}
-          {!loadingAccounts && !accountsConfigured && (
-            <div className="text-sm text-muted">
-              <span className="text-red-700">
-                {accountsError || "PostBridge not configured"}
-              </span>{" "}
-              · set POSTBRIDGE_API_KEY to enable.
-            </div>
-          )}
-          {!loadingAccounts && accountsConfigured && accounts && accounts.length === 0 && (
-            <div className="text-sm text-muted">
-              No social accounts connected to your PostBridge workspace yet.
-            </div>
-          )}
-          {accounts && accounts.length > 0 && (
-            <ul className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {accounts.map((a) => (
-                <li key={`${a.platform}:${a.id}`}>
-                  <label className="flex items-center gap-2 cursor-pointer text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(a.id)}
-                      onChange={() => toggle(a.id)}
-                    />
-                    <span className="text-xs uppercase tracking-wider text-muted">
-                      {a.platform}
-                    </span>
-                    <span className="text-ink truncate">@{a.username}</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <label className="block">
-          <span className="text-xs text-muted block mb-1">
-            Caption suffix (optional)
-          </span>
-          <textarea
-            value={caption}
-            onChange={(e) => setCaption(e.target.value)}
-            rows={2}
-            placeholder="#booktok #darkromance"
-            className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
-          />
-          <span className="text-xs text-dim block mt-1">
-            Appended to the quote text on every post for this book.
-          </span>
-        </label>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={save}
-            disabled={!dirty || busy}
-            className="px-4 py-1.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
-          >
-            {busy ? "saving…" : "Save publishing settings"}
-          </button>
-          {status && <span className="text-xs text-muted">{status}</span>}
-        </div>
-        <div className="text-xs text-dim leading-relaxed pt-2 border-t border-line">
-          Autopost is off by default. The cron at /api/cron/post drains
-          un-posted renders only when POSTBRIDGE_AUTOPOST_ENABLED=true. Until
-          then the cron reports its candidate as a dry run, so you can verify
-          the right book and accounts are selected before flipping the switch.
-        </div>
+      <div className="flex items-center gap-3 mt-2">
+        <button
+          onClick={save}
+          disabled={busy || !dirty}
+          className="px-4 py-1.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+        >
+          {busy ? "saving…" : "Save"}
+        </button>
+        {status && <span className="text-xs text-muted">{status}</span>}
       </div>
     </div>
   );
 }
 
-function QuotesManager({
+function CaptionsSection({
   book,
   onChanged,
 }: {
@@ -554,16 +414,12 @@ function QuotesManager({
   const [bulk, setBulk] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState("");
-
   const [single, setSingle] = useState("");
   const [singleBusy, setSingleBusy] = useState(false);
-
-  const quotes = book.quotes ?? [];
+  const captions = book.captions ?? [];
 
   const addBulk = useCallback(async () => {
     setBulkError("");
-    // Each PARAGRAPH (blank-line-separated block) becomes one quote so a
-    // multi-line quote with internal line breaks survives the paste.
     const blocks = bulk
       .split(/\n\s*\n/)
       .map((s) => s.trim())
@@ -571,7 +427,7 @@ function QuotesManager({
     if (blocks.length === 0) return;
     setBulkBusy(true);
     try {
-      const r = await fetch(`/api/books/${book.id}/quotes`, {
+      const r = await fetch(`/api/books/${book.id}/captions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ texts: blocks }),
@@ -593,7 +449,7 @@ function QuotesManager({
     if (!single.trim()) return;
     setSingleBusy(true);
     try {
-      const r = await fetch(`/api/books/${book.id}/quotes`, {
+      const r = await fetch(`/api/books/${book.id}/captions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: single.trim() }),
@@ -609,9 +465,9 @@ function QuotesManager({
 
   return (
     <div>
-      <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
-        quotes · {quotes.length}
-      </div>
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        captions · {captions.length}
+      </h4>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block">
@@ -619,12 +475,12 @@ function QuotesManager({
             <textarea
               value={bulk}
               onChange={(e) => setBulk(e.target.value)}
-              placeholder={"Separate each quote with a blank line.\n\nLine breaks within a quote are preserved."}
+              placeholder={"Separate each caption with a blank line.\n\nLine breaks within a caption are preserved."}
               rows={5}
               className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
             />
             <span className="text-xs text-dim block mt-1">
-              One quote per blank-line-separated block. Newlines inside a block stay intact.
+              One caption per blank-line-separated block.
             </span>
           </label>
           {bulkError && <div className="text-red-700 text-sm mt-2">{bulkError}</div>}
@@ -643,7 +499,7 @@ function QuotesManager({
               value={single}
               onChange={(e) => setSingle(e.target.value)}
               rows={5}
-              placeholder="A single quote, line breaks allowed"
+              placeholder="A single caption, line breaks allowed"
               className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
             />
           </label>
@@ -656,11 +512,11 @@ function QuotesManager({
           </button>
         </div>
       </div>
-      {quotes.length > 0 && (
+      {captions.length > 0 && (
         <ul className="mt-5 space-y-2">
-          {quotes.map((q) => (
-            <li key={q.id}>
-              <QuoteRow bookId={book.id} quote={q} onChanged={onChanged} />
+          {captions.map((c) => (
+            <li key={c.id}>
+              <CaptionRow bookId={book.id} caption={c} onChanged={onChanged} />
             </li>
           ))}
         </ul>
@@ -669,27 +525,27 @@ function QuotesManager({
   );
 }
 
-function QuoteRow({
+function CaptionRow({
   bookId,
-  quote,
+  caption,
   onChanged,
 }: {
   bookId: string;
-  quote: Quote;
+  caption: Caption;
   onChanged: () => Promise<void> | void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(quote.text);
+  const [draft, setDraft] = useState(caption.text);
   const [busy, setBusy] = useState(false);
 
   const save = useCallback(async () => {
-    if (!draft.trim() || draft.trim() === quote.text) {
+    if (!draft.trim() || draft.trim() === caption.text) {
       setEditing(false);
       return;
     }
     setBusy(true);
     try {
-      const r = await fetch(`/api/books/${bookId}/quotes/${quote.id}`, {
+      const r = await fetch(`/api/books/${bookId}/captions/${caption.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: draft.trim() }),
@@ -701,17 +557,17 @@ function QuoteRow({
     } finally {
       setBusy(false);
     }
-  }, [draft, quote.text, quote.id, bookId, onChanged]);
+  }, [draft, caption.text, caption.id, bookId, onChanged]);
 
   const remove = useCallback(async () => {
-    if (!confirm("Remove this quote?")) return;
+    if (!confirm("Remove this caption?")) return;
     setBusy(true);
-    const r = await fetch(`/api/books/${bookId}/quotes/${quote.id}`, {
+    const r = await fetch(`/api/books/${bookId}/captions/${caption.id}`, {
       method: "DELETE",
     });
     if (r.ok) await onChanged();
     setBusy(false);
-  }, [bookId, quote.id, onChanged]);
+  }, [bookId, caption.id, onChanged]);
 
   return (
     <div className="bg-bg border border-line rounded-md px-3 py-2">
@@ -733,7 +589,7 @@ function QuoteRow({
             </button>
             <button
               onClick={() => {
-                setDraft(quote.text);
+                setDraft(caption.text);
                 setEditing(false);
               }}
               className="text-muted hover:text-ink"
@@ -745,7 +601,7 @@ function QuoteRow({
       ) : (
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0 whitespace-pre-wrap text-sm text-ink leading-relaxed">
-            {quote.text}
+            {caption.text}
           </div>
           <div className="flex flex-col gap-1 text-sm shrink-0">
             <button
@@ -769,7 +625,7 @@ function QuoteRow({
   );
 }
 
-function SongsManager({
+function MusicSection({
   book,
   onChanged,
 }: {
@@ -781,7 +637,6 @@ function SongsManager({
   const [bpm, setBpm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
   const songs = book.songs ?? [];
 
   const submit = useCallback(async () => {
@@ -814,9 +669,9 @@ function SongsManager({
 
   return (
     <div>
-      <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
-        songs · {songs.length}
-      </div>
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        music · {songs.length}
+      </h4>
       <div className="bg-bg border border-line rounded-md px-4 py-4 space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label className="block">
@@ -837,9 +692,6 @@ function SongsManager({
               inputMode="numeric"
               className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
             />
-            <span className="text-xs text-dim block mt-1">
-              Leave blank and the renderer assumes 80 bpm.
-            </span>
           </label>
         </div>
         <div>
@@ -895,7 +747,6 @@ function SongRow({
   onChanged: () => Promise<void> | void;
 }) {
   const [busy, setBusy] = useState(false);
-
   const remove = useCallback(async () => {
     if (!confirm(`Remove "${song.title}"?`)) return;
     setBusy(true);
@@ -905,15 +756,13 @@ function SongRow({
     if (r.ok) await onChanged();
     setBusy(false);
   }, [bookId, song.id, song.title, onChanged]);
-
   return (
     <div className="bg-bg border border-line rounded-md px-3 py-3 flex items-center gap-3">
       <audio src={song.url} controls className="h-8 max-w-xs" />
       <div className="flex-1 min-w-0">
         <div className="text-ink truncate">{song.title}</div>
         <div className="text-xs text-muted">
-          {song.bpm ? `${song.bpm} bpm · ` : ""}
-          {song.durationSec ? `${song.durationSec.toFixed(0)}s` : ""}
+          {song.bpm ? `${song.bpm} bpm` : ""}
         </div>
       </div>
       <button
@@ -927,82 +776,16 @@ function SongRow({
   );
 }
 
-function StyleEditor({
+function ImagePromptsSection({
   book,
   onChanged,
 }: {
   book: Book;
-  onChanged: () => Promise<void> | void;
-}) {
-  const [draft, setDraft] = useState(book.stylePrompt ?? "");
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
-  const dirty = (book.stylePrompt ?? "") !== draft;
-
-  const save = useCallback(async () => {
-    setBusy(true);
-    setStatus("");
-    try {
-      const r = await fetch(`/api/books/${book.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stylePrompt: draft }),
-      });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        throw new Error(err.error || `save failed (${r.status})`);
-      }
-      setStatus("saved");
-      await onChanged();
-    } catch (e) {
-      setStatus((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }, [book.id, draft, onChanged]);
-
-  return (
-    <div>
-      <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
-        style brief
-      </div>
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder="e.g. black-dominant low-key photography, shadow-weighted exposure, suppressed midtones…"
-        rows={4}
-        className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
-      />
-      <div className="text-xs text-dim mt-1">
-        Prepended to every category prompt when generating this book&rsquo;s stills. Leave blank for none.
-      </div>
-      <div className="flex items-center gap-3 mt-2">
-        <button
-          onClick={save}
-          disabled={busy || !dirty}
-          className="px-4 py-1.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
-        >
-          {busy ? "saving…" : "Save style"}
-        </button>
-        {status && <span className="text-xs text-muted">{status}</span>}
-      </div>
-    </div>
-  );
-}
-
-function CategoryManager({
-  book,
-  stillIds,
-  onChanged,
-}: {
-  book: Book;
-  stillIds: Set<string>;
   onChanged: () => Promise<void> | void;
 }) {
   const [bulk, setBulk] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState("");
-
   const [rowLabel, setRowLabel] = useState("");
   const [rowPrompt, setRowPrompt] = useState("");
   const [rowBusy, setRowBusy] = useState(false);
@@ -1010,25 +793,23 @@ function CategoryManager({
 
   const submitBulk = useCallback(async () => {
     setBulkError("");
-    const rows = bulk.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const rows = bulk
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
     const parsed: Array<{ id?: string; label: string; prompt: string }> = [];
-    const malformed: number[] = [];
-    rows.forEach((line, idx) => {
+    for (const line of rows) {
       const parts = line.split("|").map((s) => s.trim()).filter(Boolean);
-      if (parts.length === 2) {
-        parsed.push({ label: parts[0], prompt: parts[1] });
-      } else if (parts.length >= 3) {
+      if (parts.length === 2) parsed.push({ label: parts[0], prompt: parts[1] });
+      else if (parts.length >= 3)
         parsed.push({
           id: parts[0],
           label: parts[1],
           prompt: parts.slice(2).join(" | "),
         });
-      } else {
-        malformed.push(idx + 1);
-      }
-    });
+    }
     if (parsed.length === 0) {
-      setBulkError("Use one of: `label | prompt` or `id | label | prompt` per line.");
+      setBulkError("Use `label | prompt` per line, or `id | label | prompt`.");
       return;
     }
     setBulkBusy(true);
@@ -1043,7 +824,6 @@ function CategoryManager({
         throw new Error(err.error || `add failed (${r.status})`);
       }
       setBulk("");
-      if (malformed.length) setBulkError(`Skipped lines: ${malformed.join(", ")}`);
       await onChanged();
     } catch (e) {
       setBulkError((e as Error).message);
@@ -1080,107 +860,87 @@ function CategoryManager({
   }, [rowLabel, rowPrompt, book.id, onChanged]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
-          add categories
+    <div>
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        image prompts · {book.categories.length}
+      </h4>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block">
+            <span className="text-xs text-muted block mb-1">Bulk paste</span>
+            <textarea
+              value={bulk}
+              onChange={(e) => setBulk(e.target.value)}
+              placeholder={"candles | a single tall candle on a wooden desk\nletters | aged ivory paper tied with twine"}
+              rows={4}
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
+            />
+            <span className="text-xs text-dim block mt-1">
+              Format: <span className="text-ink">label | prompt</span> per line.
+            </span>
+          </label>
+          {bulkError && <div className="text-red-700 text-sm mt-2">{bulkError}</div>}
+          <button
+            onClick={submitBulk}
+            disabled={!bulk.trim() || bulkBusy}
+            className="mt-2 px-4 py-1.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+          >
+            {bulkBusy ? "adding…" : "Add all"}
+          </button>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block">
-              <span className="text-xs text-muted block mb-1">Bulk paste</span>
-              <textarea
-                value={bulk}
-                onChange={(e) => setBulk(e.target.value)}
-                placeholder={"books | a hand pulling a leather book from a shelf\ncoffee | top-down ceramic mug of black coffee"}
-                className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
-                rows={4}
-              />
-              <span className="text-xs text-dim block mt-1">
-                Format: <span className="text-ink">label | prompt</span> per line.
-              </span>
-            </label>
-            {bulkError && (
-              <div className="text-red-700 text-sm mt-2">{bulkError}</div>
-            )}
-            <button
-              onClick={submitBulk}
-              disabled={!bulk.trim() || bulkBusy}
-              className="mt-2 px-4 py-1.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
-            >
-              {bulkBusy ? "adding…" : "Add all"}
-            </button>
-          </div>
-          <div>
-            <label className="block">
-              <span className="text-xs text-muted block mb-1">Add one</span>
-              <input
-                value={rowLabel}
-                onChange={(e) => setRowLabel(e.target.value)}
-                placeholder="label"
-                className="w-full bg-bg border border-line2 rounded px-3 py-2 mb-2 focus:border-ink focus:outline-none"
-              />
-              <textarea
-                value={rowPrompt}
-                onChange={(e) => setRowPrompt(e.target.value)}
-                placeholder="prompt"
-                rows={3}
-                className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
-              />
-            </label>
-            {rowError && (
-              <div className="text-red-700 text-sm mt-2">{rowError}</div>
-            )}
-            <button
-              onClick={submitRow}
-              disabled={!rowLabel.trim() || !rowPrompt.trim() || rowBusy}
-              className="mt-2 px-4 py-1.5 border border-line2 text-ink rounded hover:bg-ink hover:text-bg transition-colors disabled:text-dim disabled:cursor-not-allowed"
-            >
-              {rowBusy ? "adding…" : "Add"}
-            </button>
-          </div>
+        <div>
+          <label className="block">
+            <span className="text-xs text-muted block mb-1">Add one</span>
+            <input
+              value={rowLabel}
+              onChange={(e) => setRowLabel(e.target.value)}
+              placeholder="label"
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 mb-2 focus:border-ink focus:outline-none"
+            />
+            <textarea
+              value={rowPrompt}
+              onChange={(e) => setRowPrompt(e.target.value)}
+              placeholder="prompt"
+              rows={3}
+              className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
+            />
+          </label>
+          {rowError && <div className="text-red-700 text-sm mt-2">{rowError}</div>}
+          <button
+            onClick={submitRow}
+            disabled={!rowLabel.trim() || !rowPrompt.trim() || rowBusy}
+            className="mt-2 px-4 py-1.5 border border-line2 text-ink rounded hover:bg-ink hover:text-bg transition-colors disabled:text-dim disabled:cursor-not-allowed"
+          >
+            {rowBusy ? "adding…" : "Add"}
+          </button>
         </div>
       </div>
-
       {book.categories.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
-            categories
-          </div>
-          <ul className="space-y-2">
-            {book.categories.map((c) => (
-              <li key={c.id}>
-                <CategoryRow
-                  bookId={book.id}
-                  category={c}
-                  hasStill={stillIds.has(c.id)}
-                  onChanged={onChanged}
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ul className="mt-5 space-y-2">
+          {book.categories.map((c) => (
+            <li key={c.id}>
+              <PromptRow bookId={book.id} category={c} onChanged={onChanged} />
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
 }
 
-function CategoryRow({
+function PromptRow({
   bookId,
   category,
-  hasStill,
   onChanged,
 }: {
   bookId: string;
   category: BookCategory;
-  hasStill: boolean;
   onChanged: () => Promise<void> | void;
 }) {
   const [editing, setEditing] = useState(false);
   const [labelDraft, setLabelDraft] = useState(category.label);
   const [promptDraft, setPromptDraft] = useState(category.prompt);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<string>("");
 
   const save = useCallback(async () => {
     setBusy(true);
@@ -1206,69 +966,15 @@ function CategoryRow({
   }, [bookId, category.id, labelDraft, promptDraft, onChanged]);
 
   const remove = useCallback(async () => {
-    if (
-      !confirm(
-        `Remove "${category.label}"? This also deletes its generated still.`,
-      )
-    ) {
-      return;
-    }
+    if (!confirm(`Remove "${category.label}" and its still?`)) return;
+    setBusy(true);
     const r = await fetch(
       `/api/books/${bookId}/categories/${category.id}`,
       { method: "DELETE" },
     );
     if (r.ok) await onChanged();
+    setBusy(false);
   }, [bookId, category.id, category.label, onChanged]);
-
-  const regenerate = useCallback(async () => {
-    setBusy(true);
-    setStatus("generating…");
-    try {
-      const r = await fetch("/api/admin/generate-still", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookId, category: category.id }),
-      });
-      if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        throw new Error(err.error || `generate failed (${r.status})`);
-      }
-      setStatus("regenerated");
-      await onChanged();
-    } catch (e) {
-      setStatus(`failed: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  }, [bookId, category.id, onChanged]);
-
-  const upload = useCallback(
-    async (file: File) => {
-      setBusy(true);
-      setStatus("uploading…");
-      try {
-        const form = new FormData();
-        form.append("bookId", bookId);
-        form.append("category", category.id);
-        form.append("file", file);
-        const r = await fetch("/api/admin/upload-still", {
-          method: "POST",
-          body: form,
-        });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          throw new Error(err.error || `upload failed (${r.status})`);
-        }
-        setStatus("uploaded");
-        await onChanged();
-      } catch (e) {
-        setStatus(`failed: ${(e as Error).message}`);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [bookId, category.id, onChanged],
-  );
 
   return (
     <div className="bg-bg border border-line rounded-md px-3 py-3">
@@ -1310,52 +1016,22 @@ function CategoryRow({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-medium text-ink">{category.label}</span>
-              <span
-                className={`text-xs ${
-                  hasStill ? "text-muted" : "text-red-700"
-                }`}
-              >
-                {hasStill ? "✓ still ready" : "no still yet"}
-              </span>
               <span className="text-xs text-dim">id: {category.id}</span>
             </div>
-            <div className="text-sm text-muted mt-1 leading-relaxed">
+            <div className="text-sm text-muted mt-1 leading-relaxed whitespace-pre-wrap">
               {category.prompt}
             </div>
-            {status && (
-              <div className="text-xs text-dim mt-1">{status}</div>
-            )}
           </div>
           <div className="flex flex-col gap-1 text-sm shrink-0">
             <button
-              onClick={regenerate}
-              disabled={busy}
-              className="text-ink hover:text-sepia disabled:text-dim text-right"
-            >
-              {hasStill ? "regenerate" : "generate"}
-            </button>
-            <label className="text-ink hover:text-sepia cursor-pointer text-right">
-              upload
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void upload(f);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-            <button
               onClick={() => setEditing(true)}
-              className="text-muted hover:text-ink text-right"
+              className="text-muted hover:text-ink"
             >
               edit
             </button>
             <button
               onClick={remove}
-              className="text-red-700 hover:text-red-900 text-right"
+              className="text-red-700 hover:text-red-900"
             >
               remove
             </button>
@@ -1366,147 +1042,34 @@ function CategoryRow({
   );
 }
 
-function FillerManager({
-  filler,
+function LibrarySection({
+  book,
+  stillsByCategory,
   onChanged,
 }: {
-  filler: FillerStill[];
+  book: Book;
+  stillsByCategory: Record<string, string>;
   onChanged: () => Promise<void> | void;
 }) {
-  const [mode, setMode] = useState<"upload" | "generate">("upload");
-  const [label, setLabel] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const submit = useCallback(async () => {
-    if (!label.trim()) return;
-    setBusy(true);
-    setError("");
-    try {
-      if (mode === "upload") {
-        if (!file) return;
-        const form = new FormData();
-        form.append("label", label.trim());
-        form.append("file", file);
-        const r = await fetch("/api/filler", { method: "POST", body: form });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          throw new Error(err.error || `upload failed (${r.status})`);
-        }
-      } else {
-        if (!prompt.trim()) return;
-        const r = await fetch("/api/admin/generate-filler", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label: label.trim(), prompt: prompt.trim() }),
-        });
-        if (!r.ok) {
-          const err = await r.json().catch(() => ({}));
-          throw new Error(err.error || `generate failed (${r.status})`);
-        }
-      }
-      setLabel("");
-      setFile(null);
-      setPrompt("");
-      await onChanged();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }, [mode, label, file, prompt, onChanged]);
-
   return (
-    <div className="space-y-5">
-      <div className="bg-surface border border-line rounded-md px-4 py-4">
-        <div className="flex gap-3 mb-4">
-          <button
-            onClick={() => setMode("upload")}
-            className={`px-3 py-1.5 rounded text-sm ${
-              mode === "upload"
-                ? "bg-ink text-bg"
-                : "border border-line2 text-muted hover:text-ink"
-            }`}
-          >
-            Upload
-          </button>
-          <button
-            onClick={() => setMode("generate")}
-            className={`px-3 py-1.5 rounded text-sm ${
-              mode === "generate"
-                ? "bg-ink text-bg"
-                : "border border-line2 text-muted hover:text-ink"
-            }`}
-          >
-            Generate
-          </button>
+    <div>
+      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted mb-2">
+        library · {Object.keys(stillsByCategory).length}/{book.categories.length}
+      </h4>
+      {book.categories.length === 0 ? (
+        <div className="text-sm text-muted bg-bg border border-line rounded px-3 py-3">
+          Add image prompts first; this section fills as you generate or upload stills.
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="block">
-            <span className="text-xs text-muted block mb-1">Label</span>
-            <input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="candles, embers, doorway, etc."
-              className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
-            />
-          </label>
-          {mode === "upload" ? (
-            <div>
-              <span className="text-xs text-muted block mb-1">Image</span>
-              <label className="inline-flex items-center gap-3 cursor-pointer">
-                <span className="px-3 py-2 border border-line2 rounded bg-bg text-ink hover:bg-ink hover:text-bg transition-colors">
-                  {file ? "Replace image" : "Choose image"}
-                </span>
-                <span className="text-sm text-muted">
-                  {file
-                    ? `${file.name} · ${(file.size / 1024).toFixed(0)} kb`
-                    : "no file chosen"}
-                </span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                />
-              </label>
-            </div>
-          ) : (
-            <label className="block md:col-span-1">
-              <span className="text-xs text-muted block mb-1">Prompt</span>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                rows={3}
-                placeholder="describe the image"
-                className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
-              />
-            </label>
-          )}
-        </div>
-        <div className="flex items-center gap-3 mt-4">
-          <button
-            onClick={submit}
-            disabled={
-              !label.trim() ||
-              busy ||
-              (mode === "upload" ? !file : !prompt.trim())
-            }
-            className="px-5 py-2 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
-          >
-            {busy ? "working…" : mode === "upload" ? "Upload" : "Generate"}
-          </button>
-          {error && <span className="text-red-700 text-sm">{error}</span>}
-        </div>
-      </div>
-
-      {filler.length > 0 && (
+      ) : (
         <ul className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {filler.map((s) => (
-            <li key={s.id}>
-              <FillerCard still={s} onChanged={onChanged} />
+          {book.categories.map((c) => (
+            <li key={c.id}>
+              <LibrarySlot
+                bookId={book.id}
+                category={c}
+                stillUrl={stillsByCategory[c.id]}
+                onChanged={onChanged}
+              />
             </li>
           ))}
         </ul>
@@ -1515,81 +1078,142 @@ function FillerManager({
   );
 }
 
-function FillerCard({
-  still,
+function LibrarySlot({
+  bookId,
+  category,
+  stillUrl,
   onChanged,
 }: {
-  still: FillerStill;
+  bookId: string;
+  category: BookCategory;
+  stillUrl?: string;
   onChanged: () => Promise<void> | void;
 }) {
-  const [renaming, setRenaming] = useState(false);
-  const [labelDraft, setLabelDraft] = useState(still.label);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
 
-  const saveLabel = useCallback(async () => {
-    if (!labelDraft.trim() || labelDraft.trim() === still.label) {
-      setRenaming(false);
-      return;
+  const generate = useCallback(async () => {
+    setBusy(true);
+    setStatus("generating…");
+    try {
+      const r = await fetch("/api/admin/generate-still", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookId, category: category.id }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `generate failed (${r.status})`);
+      }
+      setStatus("");
+      await onChanged();
+    } catch (e) {
+      setStatus((e as Error).message);
+    } finally {
+      setBusy(false);
     }
-    setBusy(true);
-    const r = await fetch(`/api/filler/${still.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: labelDraft.trim() }),
-    });
-    if (r.ok) await onChanged();
-    setRenaming(false);
-    setBusy(false);
-  }, [labelDraft, still.label, still.id, onChanged]);
+  }, [bookId, category.id, onChanged]);
 
-  const remove = useCallback(async () => {
-    if (!confirm(`Remove "${still.label}"?`)) return;
+  const upload = useCallback(
+    async (file: File) => {
+      setBusy(true);
+      setStatus("uploading…");
+      try {
+        const form = new FormData();
+        form.append("bookId", bookId);
+        form.append("category", category.id);
+        form.append("file", file);
+        const r = await fetch("/api/admin/upload-still", {
+          method: "POST",
+          body: form,
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.error || `upload failed (${r.status})`);
+        }
+        setStatus("");
+        await onChanged();
+      } catch (e) {
+        setStatus((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [bookId, category.id, onChanged],
+  );
+
+  const removeStill = useCallback(async () => {
+    if (!stillUrl) return;
+    if (!confirm(`Remove the still for "${category.label}"? Prompt stays.`)) return;
     setBusy(true);
-    const r = await fetch(`/api/filler/${still.id}`, { method: "DELETE" });
-    if (r.ok) await onChanged();
-    setBusy(false);
-  }, [still.id, still.label, onChanged]);
+    setStatus("removing…");
+    try {
+      const r = await fetch("/api/admin/upload-still", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookId, category: category.id }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `remove failed (${r.status})`);
+      }
+      setStatus("");
+      await onChanged();
+    } catch (e) {
+      setStatus((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [stillUrl, bookId, category.id, category.label, onChanged]);
 
   return (
     <div className="bg-bg border border-line rounded-md overflow-hidden">
-      <img
-        src={still.url}
-        alt={still.label}
-        className="w-full aspect-[2/3] object-cover"
-      />
-      <div className="px-3 py-2">
-        {renaming ? (
-          <input
-            value={labelDraft}
-            onChange={(e) => setLabelDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void saveLabel();
-              if (e.key === "Escape") {
-                setLabelDraft(still.label);
-                setRenaming(false);
-              }
-            }}
-            autoFocus
-            className="w-full bg-bg border border-line2 rounded px-2 py-1 text-sm focus:border-ink focus:outline-none"
-          />
-        ) : (
-          <div className="text-sm text-ink truncate">{still.label}</div>
+      {stillUrl ? (
+        <img
+          src={stillUrl}
+          alt={category.label}
+          className="w-full aspect-[2/3] object-cover"
+        />
+      ) : (
+        <div className="w-full aspect-[2/3] bg-surface flex items-center justify-center text-xs text-dim">
+          no still
+        </div>
+      )}
+      <div className="px-2.5 py-2">
+        <div className="text-sm text-ink truncate">{category.label}</div>
+        {status && (
+          <div className="text-xs text-muted mt-0.5 break-words">{status}</div>
         )}
-        <div className="flex justify-between text-xs mt-1">
+        <div className="flex flex-wrap gap-2 mt-1 text-xs">
           <button
-            onClick={() => setRenaming((v) => !v)}
+            onClick={generate}
             disabled={busy}
-            className="text-muted hover:text-ink"
+            className="text-ink hover:text-sepia disabled:text-dim"
           >
-            rename
+            {stillUrl ? "regenerate" : "generate"}
           </button>
-          <button
-            onClick={remove}
-            disabled={busy}
-            className="text-red-700 hover:text-red-900"
-          >
-            remove
-          </button>
+          <label className="text-ink hover:text-sepia cursor-pointer">
+            upload
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void upload(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          {stillUrl && (
+            <button
+              onClick={removeStill}
+              disabled={busy}
+              className="text-red-700 hover:text-red-900 disabled:text-dim ml-auto"
+            >
+              remove
+            </button>
+          )}
         </div>
       </div>
     </div>

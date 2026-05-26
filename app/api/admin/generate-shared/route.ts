@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { generateStillViaHiggsfield } from "@/lib/higgsfield";
-import { readFiller, writeFiller, type FillerStill } from "@/lib/filler-store";
+import {
+  readShared,
+  writeShared,
+  type SharedStill,
+} from "@/lib/shared-store";
 import { slugify, uniqueId } from "@/lib/books-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
 
-// POST /api/admin/generate-filler { label, prompt }
-// Generates a single filler still via Higgsfield, saves to Blob, and
-// appends the entry to system/filler.json.
+// POST /api/admin/generate-shared { label, prompt }
+// Generates a single shared still via Higgsfield, saves to Blob, and
+// appends the entry to system/shared.json.
 export async function POST(req: Request) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json(
@@ -18,13 +22,6 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY not set" },
-      { status: 503 },
-    );
-  }
-
   let body: { label?: string; prompt?: string };
   try {
     body = await req.json();
@@ -40,7 +37,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const existing = await readFiller();
+  const existing = await readShared();
   const id = uniqueId(slugify(label), new Set(existing.map((s) => s.id)));
   try {
     const sourceUrl = await generateStillViaHiggsfield({
@@ -52,23 +49,23 @@ export async function POST(req: Request) {
       throw new Error(`failed to download generated image: ${dl.status}`);
     }
     const buf = Buffer.from(await dl.arrayBuffer());
-    const blob = await put(`system/filler/${id}.jpg`, buf, {
+    const blob = await put(`system/shared/${id}.jpg`, buf, {
       access: "public",
       contentType: "image/jpeg",
       addRandomSuffix: false,
       allowOverwrite: true,
     });
-    const still: FillerStill = {
+    const still: SharedStill = {
       id,
       label,
       url: blob.url,
       prompt,
       createdAt: new Date().toISOString(),
     };
-    await writeFiller([...existing, still]);
+    await writeShared([...existing, still]);
     return NextResponse.json({ ok: true, still });
   } catch (e) {
-    console.error("generate-filler failed", e);
+    console.error("generate-shared failed", e);
     return NextResponse.json(
       { error: (e as Error).message, label },
       { status: 500 },

@@ -10,11 +10,16 @@ export interface BookCategory {
   prompt: string;
 }
 
-export interface Quote {
+export interface Caption {
   id: string;
   text: string;
   createdAt: string;
 }
+
+// Legacy alias. Older code referred to these as "quotes"; the data
+// shape is identical and stored books may carry a `quotes` field that
+// we transparently migrate to `captions` on read (see normalizeBook).
+export type Quote = Caption;
 
 export interface Song {
   id: string;
@@ -37,7 +42,10 @@ export interface Book {
   // visual style without baking style into individual category prompts.
   stylePrompt?: string;
   categories: BookCategory[];
-  quotes?: Quote[];
+  captions?: Caption[];
+  // Deprecated; older books wrote here. normalizeBook() folds them
+  // into captions on read.
+  quotes?: Caption[];
   songs?: Song[];
   // PostBridge social account IDs to publish this book's renders to.
   // Empty / undefined means no auto-posting even if global autopost
@@ -71,10 +79,27 @@ export async function readBooks(): Promise<Book[]> {
   if (!res.ok) return [];
   try {
     const data = (await res.json()) as BooksIndex;
-    return Array.isArray(data.books) ? data.books : [];
+    if (!Array.isArray(data.books)) return [];
+    return data.books.map(normalizeBook);
   } catch {
     return [];
   }
+}
+
+function normalizeBook(b: Book): Book {
+  // Fold the deprecated `quotes` field into `captions` on read so the
+  // rest of the codebase only sees the new name. The next write
+  // (upsertBook) drops the old field.
+  if (b.quotes && b.quotes.length > 0) {
+    const existing = b.captions ?? [];
+    const have = new Set(existing.map((c) => c.id));
+    const merged = [...existing];
+    for (const q of b.quotes) {
+      if (!have.has(q.id)) merged.push(q);
+    }
+    return { ...b, captions: merged, quotes: undefined };
+  }
+  return b;
 }
 
 export async function writeBooks(books: Book[]): Promise<void> {

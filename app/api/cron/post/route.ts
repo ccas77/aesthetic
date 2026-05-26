@@ -1,27 +1,25 @@
 import { NextResponse } from "next/server";
 import { findBook } from "@/lib/books-store";
-import { readBooks } from "@/lib/books-store";
+import { readManifest, updateRender } from "@/lib/renders-manifest";
 import {
-  readManifest,
-  updateRender,
-  type RenderEntry,
-} from "@/lib/renders-manifest";
+  pickDuePost,
+  updatePostQueue,
+} from "@/lib/post-queue";
 import { createPost, uploadVideo } from "@/lib/post-bridge";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-// GET /api/cron/post — drains one un-posted render per tick. Picks
-// the oldest entry across all books that has no postedAt, uploads
-// the MP4 to PostBridge, creates the post against the owning book's
-// configured social accounts, and writes postedAt + postBridgeIds
-// back into the manifest.
+// GET /api/cron/post — drains one due post-queue entry per tick.
+// Picks the oldest entry whose scheduledFor is in the past and whose
+// status is "scheduled", uploads the render's MP4 to PostBridge,
+// creates the post against the entry's accountIds, and updates the
+// queue entry + the book's renders manifest.
 //
 // Hard-gated by POSTBRIDGE_AUTOPOST_ENABLED. Until that env var is
-// the literal string "true", this route always reports a dry run.
-// The user's standing instruction is: building/deploying the
-// integration is not consent to actually publish.
+// the literal string "true", this route stays in dry-run mode and
+// reports the entry it would have published.
 export async function GET(req: Request) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json(
@@ -40,48 +38,22 @@ export async function GET(req: Request) {
   const autopost = process.env.POSTBRIDGE_AUTOPOST_ENABLED === "true";
   const hasKey = !!process.env.POSTBRIDGE_API_KEY;
 
-  // Look across every book's manifest for the oldest un-posted entry
-  // that targets at least one PostBridge account.
-  const books = await readBooks();
-  const candidates: Array<{ entry: RenderEntry; accountIds: number[]; caption: string }> = [];
-  for (const book of books) {
-    const accountIds = book.postAccountIds ?? [];
-    if (accountIds.length === 0) continue;
-    const renders = await readManifest(book.id);
-    for (const r of renders) {
-      if (r.postedAt) continue;
-      const quote = (book.quotes ?? []).find((q) => q.id === r.quoteId);
-      const caption =
-        (quote?.text ?? "").trim() +
-        (book.captionSuffix ? `\n\n${book.captionSuffix}` : "");
-      candidates.push({ entry: r, accountIds, caption });
-    }
-  }
-  // Oldest first so the queue actually drains in order.
-  candidates.sort((a, b) =>
-    a.entry.createdAt.localeCompare(b.entry.createdAt),
-  );
-  if (candidates.length === 0) {
-    return NextResponse.json({
-      drained: 0,
-      reason: "no un-posted renders with configured accounts",
-      autopost,
-      hasKey,
-    });
+  const entry = await pickDuePost();
+  if (!entry) {
+    return NextResponse.json({ drained: 0, reason: "no due posts", autopost, hasKey });
   }
 
-  const pick = candidates[0];
   if (!autopost) {
     return NextResponse.json({
       drained: 0,
       status: "dry-run",
-      reason:
-        "POSTBRIDGE_AUTOPOST_ENABLED is not 'true'; the cron is wired but will not publish",
+      reason: "POSTBRIDGE_AUTOPOST_ENABLED is not 'true'",
       candidate: {
-        renderId: pick.entry.renderId,
-        bookId: pick.entry.bookId,
-        accountIds: pick.accountIds,
-        caption: pick.caption.slice(0, 200),
+        id: entry.id,
+        renderId: entry.renderId,
+        bookId: entry.bookId,
+        accountIds: entry.accountIds,
+        caption: entry.caption.slice(0, 200),
       },
       hasKey,
     });
@@ -90,49 +62,75 @@ export async function GET(req: Request) {
     return NextResponse.json({
       drained: 0,
       status: "no-key",
-      reason: "POSTBRIDGE_AUTOPOST_ENABLED=true but POSTBRIDGE_API_KEY not set",
+      reason: "POSTBRIDGE_API_KEY not set",
     });
   }
 
-  // Live path: fetch the rendered MP4, upload to PostBridge, create the post.
-  const book = await findBook(pick.entry.bookId);
+  const book = await findBook(entry.bookId);
   if (!book) {
+    await updatePostQueue(entry.id, {
+      status: "failed",
+      lastError: "book not found",
+      attempts: entry.attempts + 1,
+    });
     return NextResponse.json(
-      { drained: 0, status: "skipped", reason: "book not found", renderId: pick.entry.renderId },
+      { drained: 0, status: "skipped", reason: "book not found", id: entry.id },
     );
   }
+  const manifest = await readManifest(entry.bookId);
+  const render = manifest.find((r) => r.renderId === entry.renderId);
+  if (!render) {
+    await updatePostQueue(entry.id, {
+      status: "failed",
+      lastError: "render not found in manifest",
+      attempts: entry.attempts + 1,
+    });
+    return NextResponse.json(
+      { drained: 0, status: "skipped", reason: "render not found", id: entry.id },
+    );
+  }
+
   try {
-    const videoRes = await fetch(pick.entry.blobUrl);
+    const videoRes = await fetch(render.blobUrl);
     if (!videoRes.ok) {
-      throw new Error(`video fetch ${pick.entry.blobUrl} -> ${videoRes.status}`);
+      throw new Error(`video fetch ${render.blobUrl} -> ${videoRes.status}`);
     }
     const buf = Buffer.from(await videoRes.arrayBuffer());
-    const mediaId = await uploadVideo(buf, `${pick.entry.renderId}.mp4`);
+    const mediaId = await uploadVideo(buf, `${render.renderId}.mp4`);
     const postId = await createPost({
-      caption: pick.caption || book.title,
+      caption: entry.caption || book.title,
       mediaIds: [mediaId],
-      accountIds: pick.accountIds,
+      accountIds: entry.accountIds,
     });
-    await updateRender(pick.entry.bookId, pick.entry.renderId, {
-      postedAt: new Date().toISOString(),
+    const postedAt = new Date().toISOString();
+    await updatePostQueue(entry.id, {
+      status: "posted",
+      postedAt,
+      postBridgePostIds: [postId],
+      attempts: entry.attempts + 1,
+    });
+    await updateRender(entry.bookId, entry.renderId, {
+      postedAt,
       postBridgeIds: [postId],
     });
     return NextResponse.json({
       drained: 1,
       status: "posted",
-      renderId: pick.entry.renderId,
+      id: entry.id,
+      renderId: entry.renderId,
       postId,
-      accountIds: pick.accountIds,
+      accountIds: entry.accountIds,
     });
   } catch (e) {
+    const msg = (e as Error).message;
+    await updatePostQueue(entry.id, {
+      status: "failed",
+      lastError: msg,
+      attempts: entry.attempts + 1,
+    });
     console.error("cron post failed", e);
     return NextResponse.json(
-      {
-        drained: 0,
-        status: "failed",
-        renderId: pick.entry.renderId,
-        error: (e as Error).message,
-      },
+      { drained: 0, status: "failed", id: entry.id, error: msg },
       { status: 500 },
     );
   }

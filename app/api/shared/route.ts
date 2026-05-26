@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
-import { readFiller, writeFiller, type FillerStill } from "@/lib/filler-store";
+import {
+  readShared,
+  writeShared,
+  type SharedStill,
+} from "@/lib/shared-store";
 import { slugify, uniqueId } from "@/lib/books-store";
 
 export const runtime = "nodejs";
@@ -10,13 +14,13 @@ export async function GET() {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json({ configured: false, stills: [] });
   }
-  const stills = await readFiller();
+  const stills = await readShared();
   return NextResponse.json({ configured: true, stills });
 }
 
-// POST (multipart): { label, file } uploads a user-provided image as a
-// filler still. For Higgsfield-generated fillers, see
-// /api/admin/generate-filler.
+// POST (multipart): { label, file } — uploads a user-provided image
+// into the shared pool. For Higgsfield-generated shared stills, see
+// /api/admin/generate-shared.
 export async function POST(req: Request) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json(
@@ -41,24 +45,23 @@ export async function POST(req: Request) {
   if (!(file instanceof File) || file.size === 0) {
     return NextResponse.json({ error: "file required" }, { status: 400 });
   }
-
-  const existing = await readFiller();
+  const existing = await readShared();
   const id = uniqueId(slugify(label), new Set(existing.map((s) => s.id)));
   const ext = extFromMime(file.type);
   const buf = Buffer.from(await file.arrayBuffer());
-  const blob = await put(`system/filler/${id}.${ext}`, buf, {
+  const blob = await put(`system/shared/${id}.${ext}`, buf, {
     access: "public",
     contentType: file.type || "image/jpeg",
     addRandomSuffix: false,
     allowOverwrite: true,
   });
-  const still: FillerStill = {
+  const still: SharedStill = {
     id,
     label,
     url: blob.url,
     createdAt: new Date().toISOString(),
   };
-  await writeFiller([...existing, still]);
+  await writeShared([...existing, still]);
   return NextResponse.json({ still });
 }
 

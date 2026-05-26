@@ -39,7 +39,7 @@ export async function GET(req: Request) {
       { drained: 1, job, status: "skipped", reason: "book not found" },
     );
   }
-  const quote = (book.quotes ?? []).find((q) => q.id === job.quoteId);
+  const quote = (book.captions ?? []).find((q) => q.id === job.quoteId);
   const song = (book.songs ?? []).find((s) => s.id === job.songId);
   if (!quote || !song) {
     return NextResponse.json(

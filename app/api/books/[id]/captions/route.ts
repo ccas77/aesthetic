@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
-import { readBooks, upsertBook, type Quote } from "@/lib/books-store";
+import { readBooks, upsertBook, type Caption } from "@/lib/books-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,11 +9,10 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// POST /api/books/[id]/quotes
-// Body: { text: "..." }  OR  { texts: ["...", "..."] }  OR  { quotes: [{ text }] }
-// Bulk paste from the UI splits a textarea into rows and posts them as
-// `texts`. A single add posts `text`. Returns the updated book and the
-// list of newly-added quotes.
+// POST /api/books/[id]/captions
+// Body: { text } | { texts: [...] } | { captions: [{ text }, ...] }
+// Also accepts the legacy `quotes` array key. Bulk paste splits a
+// textarea by blank lines client-side and posts as `texts`.
 export async function POST(req: Request, { params }: RouteParams) {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return NextResponse.json(
@@ -22,7 +21,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
   }
   const { id } = await params;
-  let body: { text?: unknown; texts?: unknown; quotes?: unknown };
+  let body: {
+    text?: unknown;
+    texts?: unknown;
+    captions?: unknown;
+    quotes?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -44,27 +48,28 @@ export async function POST(req: Request, { params }: RouteParams) {
       if (typeof t === "string" && t.trim()) incomingTexts.push(t.trim());
     }
   }
-  if (Array.isArray(body.quotes)) {
-    for (const q of body.quotes) {
-      if (q && typeof q === "object") {
-        const t = (q as { text?: unknown }).text;
+  const arr = Array.isArray(body.captions) ? body.captions : body.quotes;
+  if (Array.isArray(arr)) {
+    for (const item of arr) {
+      if (item && typeof item === "object") {
+        const t = (item as { text?: unknown }).text;
         if (typeof t === "string" && t.trim()) incomingTexts.push(t.trim());
       }
     }
   }
   if (incomingTexts.length === 0) {
     return NextResponse.json(
-      { error: "no valid quote text provided" },
+      { error: "no valid caption text provided" },
       { status: 400 },
     );
   }
 
-  const added: Quote[] = incomingTexts.map((text) => ({
+  const added: Caption[] = incomingTexts.map((text) => ({
     id: randomUUID(),
     text,
     createdAt: new Date().toISOString(),
   }));
-  book.quotes = [...(book.quotes ?? []), ...added];
+  book.captions = [...(book.captions ?? []), ...added];
   await upsertBook(book);
   return NextResponse.json({ book, added });
 }

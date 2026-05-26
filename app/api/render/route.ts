@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { list } from "@vercel/blob";
 import { findBook } from "@/lib/books-store";
-import { readFiller } from "@/lib/filler-store";
+import { readShared } from "@/lib/shared-store";
 import { renderServer, type StillRef } from "@/lib/render-server";
 
 export const runtime = "nodejs";
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   if (!book) {
     return NextResponse.json({ error: "book not found" }, { status: 404 });
   }
-  const quote = (book.quotes ?? []).find((q) => q.id === quoteId);
+  const quote = (book.captions ?? []).find((q) => q.id === quoteId);
   if (!quote) {
     return NextResponse.json({ error: "quote not found" }, { status: 404 });
   }
@@ -69,13 +69,13 @@ export async function POST(req: Request) {
     })
     .filter((s): s is StillRef => s !== null);
 
-  const filler = await readFiller();
-  const fillerStills: StillRef[] = filler.map((f) => ({
-    id: `filler:${f.id}`,
+  const shared = await readShared();
+  const sharedStills: StillRef[] = shared.map((f) => ({
+    id: `shared:${f.id}`,
     url: f.url,
   }));
 
-  const stills = [...bookStills, ...fillerStills];
+  const stills = [...bookStills, ...sharedStills];
   if (stills.length === 0) {
     return NextResponse.json(
       { error: "no stills available for this book" },

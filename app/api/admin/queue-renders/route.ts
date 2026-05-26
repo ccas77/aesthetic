@@ -35,9 +35,9 @@ export async function POST(req: Request) {
   if (!book) {
     return NextResponse.json({ error: "book not found" }, { status: 404 });
   }
-  if ((book.quotes ?? []).length === 0 || (book.songs ?? []).length === 0) {
+  if ((book.captions ?? []).length === 0 || (book.songs ?? []).length === 0) {
     return NextResponse.json(
-      { error: "book needs at least one quote and one song" },
+      { error: "book needs at least one caption and one song" },
       { status: 400 },
     );
   }
@@ -61,7 +61,9 @@ export async function POST(req: Request) {
   const jobs: QueueJob[] = pairs.map((p) => ({
     id: randomUUID(),
     bookId,
-    quoteId: p.quote.id,
+    // QueueJob field name stays "quoteId" for backwards-compat with
+    // any in-flight queue entries; it holds a caption id now.
+    quoteId: p.caption.id,
     songId: p.song.id,
     requestedAt: now,
     attempts: 0,

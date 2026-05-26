@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { use } from "react";
 import Link from "next/link";
-import type { Book, Quote, Song } from "@/lib/books-store";
+import type { Book, Caption, Song } from "@/lib/books-store";
 import type { RenderEntry } from "@/lib/renders-manifest";
 
 export default function BookRendersPage({
@@ -39,9 +39,9 @@ export default function BookRendersPage({
     void refresh();
   }, [refresh]);
 
-  const quoteById = useMemo(() => {
-    const m = new Map<string, Quote>();
-    for (const q of book?.quotes ?? []) m.set(q.id, q);
+  const captionById = useMemo(() => {
+    const m = new Map<string, Caption>();
+    for (const c of book?.captions ?? []) m.set(c.id, c);
     return m;
   }, [book]);
   const songById = useMemo(() => {
@@ -86,7 +86,7 @@ export default function BookRendersPage({
       ) : (
         <ul className="space-y-4">
           {renders.map((r) => {
-            const q = quoteById.get(r.quoteId);
+            const q = captionById.get(r.quoteId);
             const s = songById.get(r.songId);
             return (
               <li
@@ -101,9 +101,9 @@ export default function BookRendersPage({
                   />
                   <div className="space-y-2 text-sm">
                     <div>
-                      <span className="text-xs text-muted uppercase tracking-wider">quote</span>
+                      <span className="text-xs text-muted uppercase tracking-wider">caption</span>
                       <p className="text-ink whitespace-pre-wrap mt-1">
-                        {q?.text ?? <em className="text-dim">deleted quote</em>}
+                        {q?.text ?? <em className="text-dim">deleted caption</em>}
                       </p>
                     </div>
                     <div>

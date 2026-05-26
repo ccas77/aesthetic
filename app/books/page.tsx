@@ -48,32 +48,43 @@ export default function BooksPage() {
     void refreshBooks();
   }, [refreshBooks]);
 
+  const [addOpen, setAddOpen] = useState<boolean>(books.length === 0);
+  useEffect(() => {
+    if (books.length === 0) setAddOpen(true);
+  }, [books.length]);
+
   return (
     <main className="max-w-5xl mx-auto px-6 md:px-12 py-8 font-sans text-ink">
-      <h1 className="text-sm font-semibold uppercase tracking-wider text-muted mb-4">
-        books
-      </h1>
+      <div className="flex items-baseline justify-between mb-4">
+        <h1 className="text-sm font-semibold uppercase tracking-wider text-muted">
+          books · {books.length}
+        </h1>
+        {books.length > 0 && (
+          <button
+            onClick={() => setAddOpen((v) => !v)}
+            className="px-3 py-1.5 border border-line2 rounded text-sm text-ink hover:bg-ink hover:text-bg transition-colors"
+          >
+            {addOpen ? "close" : "+ Add book"}
+          </button>
+        )}
+      </div>
 
-      <section className="mb-10">
-        <h2 className="text-xs text-muted uppercase tracking-wider mb-2">
-          add a book
-        </h2>
-        <AddBookForm
-          books={books}
-          onCreated={async (id) => {
-            await refreshBooks();
-            setExpandedId(id);
-          }}
-        />
-      </section>
+      {addOpen && (
+        <section className="mb-8">
+          <AddBookForm
+            books={books}
+            onCreated={async (id) => {
+              await refreshBooks();
+              setExpandedId(id);
+            }}
+          />
+        </section>
+      )}
 
       <section>
-        <h2 className="text-xs text-muted uppercase tracking-wider mb-2">
-          your books · {books.length}
-        </h2>
-        {books.length === 0 ? (
+        {books.length === 0 && !addOpen ? (
           <div className="text-muted text-sm bg-surface border border-line rounded-md px-4 py-6">
-            No books yet. Add one above.
+            No books yet.
           </div>
         ) : (
           <ul className="space-y-3">
@@ -108,6 +119,7 @@ function AddBookForm({
   const [cover, setCover] = useState<File | null>(null);
   const [copyFromId, setCopyFromId] = useState("");
   const [stylePrompt, setStylePrompt] = useState("");
+  const [showMore, setShowMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -130,6 +142,7 @@ function AddBookForm({
       }
       const data = (await r.json()) as { book: Book };
       setSuccess(`added "${data.book.title}"`);
+      // Clear inputs but keep the form open so the user can add another.
       setTitle("");
       setCover(null);
       setCopyFromId("");
@@ -143,82 +156,83 @@ function AddBookForm({
   }, [title, cover, copyFromId, stylePrompt, onCreated]);
 
   return (
-    <div className="bg-surface border border-line rounded-md px-4 py-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <label className="block">
-          <span className="text-xs text-muted block mb-1">Title</span>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="book title"
-            className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
-          />
-        </label>
-        <div>
-          <span className="text-xs text-muted block mb-1">Cover image</span>
-          <label className="inline-flex items-center gap-3 cursor-pointer">
-            <span className="px-3 py-2 border border-line2 rounded bg-bg text-ink hover:bg-ink hover:text-bg transition-colors">
-              {cover ? "Replace image" : "Choose image"}
-            </span>
-            <span className="text-sm text-muted">
-              {cover
-                ? `${cover.name} · ${(cover.size / 1024).toFixed(0)} kb`
-                : "no file chosen"}
-            </span>
-            <input
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={(e) => setCover(e.target.files?.[0] ?? null)}
-            />
-          </label>
-        </div>
-        {books.length > 0 && (
-          <label className="block md:col-span-2">
-            <span className="text-xs text-muted block mb-1">
-              Copy categories from (optional)
-            </span>
-            <select
-              value={copyFromId}
-              onChange={(e) => setCopyFromId(e.target.value)}
-              className="w-full bg-bg border border-line2 rounded px-3 py-2 focus:border-ink focus:outline-none"
-            >
-              <option value="">start with no categories</option>
-              {books.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.title} ({b.categories.length})
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <label className="block md:col-span-2">
-          <span className="text-xs text-muted block mb-1">Style brief (optional)</span>
-          <textarea
-            value={stylePrompt}
-            onChange={(e) => setStylePrompt(e.target.value)}
-            rows={3}
-            placeholder="e.g. black-dominant low-key photography, shadow-weighted exposure, suppressed midtones, near-monochromatic palette…"
-            className="w-full bg-bg border border-line2 rounded px-3 py-2 text-sm focus:border-ink focus:outline-none resize-y"
-          />
-          <span className="text-xs text-dim block mt-1">
-            Prepended to every image prompt when generating this book&rsquo;s stills.
+    <div className="bg-surface border border-line rounded-md px-3 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Book title"
+          className="flex-1 min-w-[12rem] bg-bg border border-line2 rounded px-3 py-1.5 focus:border-ink focus:outline-none"
+        />
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <span className="px-3 py-1.5 border border-line2 rounded bg-bg text-ink hover:bg-ink hover:text-bg transition-colors text-sm">
+            {cover ? "Replace cover" : "Choose cover"}
           </span>
+          <span className="text-xs text-muted max-w-[12rem] truncate">
+            {cover ? cover.name : "no file"}
+          </span>
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(e) => setCover(e.target.files?.[0] ?? null)}
+          />
         </label>
-      </div>
-      <div className="flex items-center gap-3 mt-4">
         <button
           onClick={submit}
           disabled={!title.trim() || !cover || busy}
-          className="px-5 py-2 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
+          className="px-4 py-1.5 bg-ink text-bg rounded hover:bg-sepia transition-colors disabled:bg-line2 disabled:text-dim disabled:cursor-not-allowed"
         >
-          {busy ? "creating…" : "Create book"}
+          {busy ? "creating…" : "Create"}
         </button>
-        {error && <span className="text-red-700 text-sm">{error}</span>}
-        {success && !error && (
-          <span className="text-muted text-sm">{success}</span>
-        )}
+        <button
+          onClick={() => setShowMore((v) => !v)}
+          className="text-xs text-muted hover:text-ink underline underline-offset-4"
+        >
+          {showMore ? "less" : "more options"}
+        </button>
       </div>
+
+      {showMore && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-line">
+          {books.length > 0 && (
+            <label className="block">
+              <span className="text-xs text-muted block mb-1">
+                Copy categories from
+              </span>
+              <select
+                value={copyFromId}
+                onChange={(e) => setCopyFromId(e.target.value)}
+                className="w-full bg-bg border border-line2 rounded px-3 py-1.5 focus:border-ink focus:outline-none"
+              >
+                <option value="">none</option>
+                {books.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.title} ({b.categories.length})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className={`block ${books.length > 0 ? "" : "md:col-span-2"}`}>
+            <span className="text-xs text-muted block mb-1">Style brief</span>
+            <textarea
+              value={stylePrompt}
+              onChange={(e) => setStylePrompt(e.target.value)}
+              rows={2}
+              placeholder="e.g. black-dominant low-key photography, shadow-weighted exposure, suppressed midtones…"
+              className="w-full bg-bg border border-line2 rounded px-3 py-1.5 text-sm focus:border-ink focus:outline-none resize-y"
+            />
+          </label>
+        </div>
+      )}
+
+      {(error || success) && (
+        <div className="text-xs mt-2">
+          {error && <span className="text-red-700">{error}</span>}
+          {success && !error && <span className="text-muted">{success}</span>}
+        </div>
+      )}
     </div>
   );
 }

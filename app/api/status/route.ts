@@ -8,7 +8,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const PB_BASE = "https://api.post-bridge.com";
 const PB_CHUNK = 20;
 
-type PBPostResult = { post_id?: string; success?: boolean };
+type PBPostResult = { post_id?: string; success?: boolean; error?: unknown };
 
 class PBError extends Error {
   status: number;
@@ -74,6 +74,7 @@ export async function GET(req: Request) {
   let confirmed = 0;
   let confirmGap = 0;
   let ycError: string | null = null;
+  const unconfirmed: Array<{ target: string; postBridgeId: string; error?: string }> = [];
 
   const pbIds: string[] = [];
   for (const e of attemptedEntries) {
@@ -87,6 +88,7 @@ export async function GET(req: Request) {
     } else {
       try {
         const successById = new Set<string>();
+        const errorById = new Map<string, string>();
         const chunks: string[][] = [];
         for (let i = 0; i < uniqPbIds.length; i += PB_CHUNK) chunks.push(uniqPbIds.slice(i, i + PB_CHUNK));
         for (const chunk of chunks) {
@@ -94,15 +96,27 @@ export async function GET(req: Request) {
           for (const id of chunk) qs.append("post_id", id);
           const r = await pbGet<{ data?: PBPostResult[] }>(`/v1/post-results?${qs}`);
           for (const row of r.data || []) {
-            if (row.post_id && row.success === true) successById.add(row.post_id);
+            if (!row.post_id) continue;
+            if (row.success === true) successById.add(row.post_id);
+            else if (row.error && !errorById.has(row.post_id)) {
+              errorById.set(row.post_id, typeof row.error === "string" ? row.error : JSON.stringify(row.error));
+            }
           }
         }
-        // Confirmed = an attempted entry where AT LEAST ONE of its
-        // postBridgePostIds shows success. That way multi-target posts count
-        // as "went live" if any target landed.
         for (const e of attemptedEntries) {
           const ids = e.postBridgePostIds || [];
-          if (ids.some((id) => successById.has(id))) confirmed += 1;
+          if (ids.some((id) => successById.has(id))) {
+            confirmed += 1;
+          } else if (unconfirmed.length < 25) {
+            const firstAcct = e.accountIds?.[0];
+            const target = firstAcct ? `account:${firstAcct}` : "(unknown)";
+            const firstFailed = ids.find((id) => errorById.has(id)) || ids[0];
+            unconfirmed.push({
+              target,
+              postBridgeId: firstFailed || "(no pb id)",
+              error: firstFailed ? errorById.get(firstFailed) : undefined,
+            });
+          }
         }
         confirmGap = Math.max(0, attempted - confirmed);
       } catch (e) {
@@ -179,6 +193,7 @@ export async function GET(req: Request) {
       attemptGap,
       confirmGap,
       error: ycError,
+      unconfirmed,
     },
     generatedAt: new Date().toISOString(),
   });
